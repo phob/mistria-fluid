@@ -1,71 +1,82 @@
-[size=4][b]ARPG Movement 2.0.0 — Click, Hold, and Swap Tools Automatically[/b][/size]
+[center][size=6][b]ARPG MOVEMENT[/b][/size]
+[size=4]Click. Hold. Explore.[/size]
 
-[size=4][b][color=#ff5555]⚠ Requires MOMI 0.14.0 beta 3 or newer[/color][/b][/size]
-[b]The MOMI version currently available on Nexus (0.13.x) cannot install this mod.[/b]
-[b]Download the latest 0.14.0 beta from [url=https://github.com/Garethp/Mods-of-Mistria-Installer/releases]the MOMI GitHub releases page[/url][/b], then install the mod normally.
+[b]Turn Fields of Mistria into a more direct, mouse-driven adventure.[/b]
+Move with intention, interact from a distance, and let the right tool snap into your hand when you need it.
+[/center]
 
-Move through Mistria with the mouse like an action RPG, click characters and objects to approach them, and let the game choose the right tool when you click a resource. WASD still works exactly as before and always takes control the moment you use it.
+[center][img]https://raw.githubusercontent.com/phob/mistria-fluid/main/nexus/assets/floral-bouquet-separator.png[/img][/center]
 
-[size=3][b]What's new in 2.0.0[/b][/size]
+[size=4][b][color=#f6b24a]⚠ MOMI REQUIRED[/color][/b][/size]
+[b]Requires MOMI 0.14.0 beta 3 or newer.[/b]
+The MOMI build currently on Nexus (0.13.x) cannot install this mod. Download [url=https://github.com/Garethp/Mods-of-Mistria-Installer/releases/tag/v0.14.0-beta-3]MOMI 0.14.0 beta 3 from the official GitHub releases page[/url], then install this mod normally.
+
+[center][img]https://raw.githubusercontent.com/phob/mistria-fluid/main/nexus/assets/floral-vine-separator.png[/img][/center]
+
+[size=5][b]YOUR NEW MOVEMENT KIT[/b][/size]
+
 [list]
-[*][b]Auto Tool Swapping[/b] — click a nearby rock, tree, stump, or dig spot and the correct tool is equipped automatically before your character acts.
-[*][b]Smart interactions[/b] — click a distant NPC, chest, door, or other usable object and your character walks over and interacts with it.
-[*][b]Mounted and swimming controls[/b] — hold right mouse to steer while riding or swimming too.
-[*][b]Clear click feedback[/b] — a normal poof marks a valid destination; a red poof tells you when a click cannot be reached.
-[*][b]Safer room movement[/b] — clicks outside a room no longer let the player walk past door transitions or leave the playable area.
+[*][b]AUTO TOOL SWAPPING[/b] — Click a rock, tree, stump, or dig spot and the right tool is equipped before your character acts.[/*]
+[*][b]SMART INTERACTIONS[/b] — Click a distant NPC, chest, door, or usable object to walk into range and interact.[/*]
+[*][b]MOUSE-DRIVEN MOVEMENT[/b] — Hold right mouse to steer; tap right mouse to path to a destination.[/*]
+[*][b]MOUNTED & SWIMMING CONTROLS[/b] — Keep steering while riding or swimming.[/*]
+[*][b]CLEAR CLICK FEEDBACK[/b] — A normal poof confirms a valid destination; a red poof means it cannot be reached.[/*]
 [/list]
 
-[size=3][b]Mouse controls[/b][/size]
+[center][img]https://raw.githubusercontent.com/phob/mistria-fluid/main/nexus/assets/floral-vine-separator.png[/img][/center]
+
+[size=5][b]CONTROLS[/b][/size]
+
 [list]
-[*][b]Hold right mouse[/b] — steer toward the cursor. Your character walks when the cursor is close and runs when it is farther away. Hold your normal Walk control when you always want to walk.
-[*][b]Tap right mouse on the ground[/b] — walk to that spot automatically, going around obstacles along the way.
-[*][b]Tap right mouse on a character or object[/b] — walk into range and interact automatically. Nearby taps still work like the normal Interact button.
-[*][b]WASD / jump / tool / E / Esc[/b] — immediately cancels a mouse-driven walk, so keyboard controls always win.
+[*][b]Hold right mouse[/b] — Steer toward the cursor. Move close to walk; move farther away to run. Hold your normal Walk control whenever you want to stay at walking pace.[/*]
+[*][b]Tap right mouse on the ground[/b] — Walk to that spot automatically, navigating around obstacles.[/*]
+[*][b]Tap right mouse on a character or object[/b] — Walk into range and interact. Nearby taps still behave like the normal Interact button.[/*]
+[*][b]WASD / jump / tool / E / Esc[/b] — Instantly cancel mouse-driven movement. Keyboard control always wins.[/*]
 [/list]
 
-While right mouse is held, Interact is temporarily suppressed. You can steer past people, chests, and doors without accidentally activating them.
+While right mouse is held, Interact is temporarily suppressed so you can steer past people, chests, and doors without activating them.
 
-[size=3][b]Auto Tool Swapping[/b][/size]
-Auto Tool Swapping is enabled by default and uses the same left-click you already use for tools:
+[center][img]https://raw.githubusercontent.com/phob/mistria-fluid/main/nexus/assets/floral-vine-separator.png[/img][/center]
+
+[size=5][b]AUTO TOOL SWAPPING[/b][/size]
+
+Enabled by default and built around your usual left-click tool action:
+
 [list]
-[*]Click a [b]rock[/b] to equip a pickaxe.
-[*]Click a [b]tree or stump[/b] to equip an axe.
-[*]Click a [b]dig spot[/b] to equip a shovel.
-[*]In the [b]mines[/b], other action clicks equip a weapon when one is available.
-[*]The mod searches your whole inventory and changes toolbar pages when necessary.
-[*]It will not equip a tool that is too weak for the resource, and recognized resource clicks are left alone when the required tool is missing or out of reach.
+[*]Click a [b]rock[/b] to equip a pickaxe.[/*]
+[*]Click a [b]tree or stump[/b] to equip an axe.[/*]
+[*]Click a [b]dig spot[/b] to equip a shovel.[/*]
+[*]In the [b]mines[/b], other action clicks equip a weapon when one is available.[/*]
 [/list]
 
-Press [b]F6[/b] to turn Auto Tool Swapping on or off. A notification confirms the change, and your choice is remembered. This feature only acts when left mouse is assigned to a normal tool-use control.
+The mod searches your whole inventory and changes toolbar pages when needed. It will not equip a tool that is too weak, missing, or out of reach.
 
-[size=3][b]Installation[/b][/size]
-[list=1]
-[*]Install [url=https://github.com/Garethp/Mods-of-Mistria-Installer/releases]MOMI 0.14.0 beta 3 or newer[/url]. Until 0.14.0 reaches [url=https://www.nexusmods.com/fieldsofmistria/mods/78]the MOMI Nexus page[/url], the 0.13.x Nexus download cannot install this mod.
-[*]Extract this mod into your [b]mods[/b] folder so the file is at [font=Courier New]mods/arpg_movement/manifest.json[/font].
-[*]Run MOMI and install your mods.
-[/list]
+Press [b]F6[/b] to toggle Auto Tool Swapping. Your choice is remembered.
 
-[size=3][b]Configuration[/b][/size]
-After the first launch, settings appear at [font=Courier New]%LOCALAPPDATA%\FieldsOfMistria\mod_data\arpg_movement\arpg_movement.json[/font]:
+[center][img]https://raw.githubusercontent.com/phob/mistria-fluid/main/nexus/assets/floral-vine-separator.png[/img][/center]
+
+[size=5][b]INSTALLATION[/b][/size]
+
 [list]
-[*][font=Courier New]enabled[/font] — enable or disable the mod without uninstalling it
-[*][font=Courier New]tap_seconds[/font] — maximum time for a press to count as a tap (default 0.6)
-[*][font=Courier New]steer_start_seconds[/font] — delay before a hold begins steering (default 0.1)
-[*][font=Courier New]walk_within_px[/font] / [font=Courier New]run_beyond_px[/font] — distances used to switch between walking and running (defaults 16 / 32)
-[*][font=Courier New]interact_radius_px[/font] — distance where a ground tap stays a normal nearby interaction (default 24)
-[*][font=Courier New]stop_within_px[/font] — standstill area around the player (default 8)
-[*][font=Courier New]click_to_interact[/font] — walk to and use clicked characters and objects (default true)
-[*][font=Courier New]click_marker[/font] — show the normal destination poof (default true)
-[*][font=Courier New]invalid_click_marker[/font] — show a red poof for invalid destinations (default true)
-[*][font=Courier New]auto_select_action_item[/font] — enable Auto Tool Swapping (default true; also toggled with F6)
+[*]Install [b]MOMI 0.14.0 beta 3 or newer[/b].[/*]
+[*]Extract this mod so the file path is [b]mods/arpg_movement/manifest.json[/b].[/*]
+[*]Run MOMI and install your mods.[/*]
 [/list]
 
-[size=3][b]Compatibility & notes[/b][/size]
+[center][img]https://raw.githubusercontent.com/phob/mistria-fluid/main/nexus/assets/floral-vine-separator.png[/img][/center]
+
+[size=5][b]CONFIGURATION[/b][/size]
+
+After first launch, settings are created in [b]%LOCALAPPDATA%\FieldsOfMistria\mod_data\arpg_movement\arpg_movement.json[/b].
+
 [list]
-[*]Gamepad play is untouched.
-[*]Cutscenes and scripted movement are untouched.
-[*]Mounted taps keep their normal interaction behavior.
-[*]Rebound movement, Walk, and cancellation controls are respected.
-[*]If Interact is moved away from right mouse, right mouse simply becomes a dedicated movement button.
-[*]Timing remains consistent at non-default frame-rate settings.
+[*][b]enabled[/b] — Enable or disable the mod without uninstalling it.[/*]
+[*][b]tap_seconds[/b] and [b]steer_start_seconds[/b] — Adjust tap and steering timing.[/*]
+[*][b]walk_within_px[/b] and [b]run_beyond_px[/b] — Tune the walk/run distances.[/*]
+[*][b]click_to_interact[/b] — Toggle automatic approach and interaction.[/*]
+[*][b]click_marker[/b] and [b]invalid_click_marker[/b] — Toggle destination feedback.[/*]
+[*][b]auto_select_action_item[/b] — Toggle Auto Tool Swapping.[/*]
 [/list]
+
+[size=5][b]COMPATIBILITY[/b][/size]
+Gamepad play, cutscenes, scripted movement, and rebound controls are respected. If Interact is moved away from right mouse, right mouse becomes a dedicated movement button.

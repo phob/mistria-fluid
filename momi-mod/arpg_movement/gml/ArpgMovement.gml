@@ -21,6 +21,8 @@
 //   bound to a vanilla tool-use action, a nearby clicked rock, tree/stump, or
 //   dig site selects its usable inventory tool before vanilla consumes that
 //   same click. Other world clicks select an inventory weapon only in mines.
+// - Left- or right-clicking outside the topmost normal closable menu closes
+//   it. Dialogue, modal prompts, and menus with custom Back behavior stay out.
 //
 // Steering works by feeding the cursor direction into the input system as a
 // virtual analog stick (`INPUT.gp_left_stick`), which the player's normal
@@ -65,6 +67,7 @@ function arpg_movement_config() {
         click_marker: mmapi_config_bool(_source, "click_marker", true),
         invalid_click_marker: mmapi_config_bool(_source, "invalid_click_marker", true),
         auto_select_action_item: mmapi_config_bool(_source, "auto_select_action_item", true),
+        click_outside_closes_menus: mmapi_config_bool(_source, "click_outside_closes_menus", true),
     };
     mmapi_config_write("arpg_movement", ARPG_MOVEMENT_CONFIG_VERSION, _rt.cfg);
     return _rt.cfg;
@@ -92,6 +95,106 @@ function __arpg_movement_show_marker(_x, _y, _valid) {
     if (!_valid) {
         _effect.image_blend = make_color_rgb(255, 72, 72);
     }
+}
+
+// True when the pointer is over any visible part owned by this menu. The
+// menu's root canvas covers the whole UI area, so only its descendants count.
+// BackgroundMenu hangs from ANCHOR.screen_canvas and has no source_menu.
+function __arpg_movement_point_inside_menu(_menu) {
+    for (var _i = 0; _i < ANCHOR.node_count; _i++) {
+        var _node = ANCHOR.node_registrar[| _i];
+        if (_node == undefined
+            || _node == _menu.canvas
+            || _node.freed
+            || !_node.safe_enabled
+            || _node.source_menu != _menu
+            || _node.cache_alpha <= 0)
+        {
+            continue;
+        }
+
+        if (ANCHOR.point_in_node(_node, MOUSE_GUI_X, MOUSE_GUI_Y)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Closes only the topmost modal menu that uses AnchorMenu's ordinary Back
+// behavior. The Skills screen handles Back itself because its tier view has
+// an internal back step, so an outside click mirrors that layered behavior.
+// A non-closable modal above another menu blocks the search, so an outside
+// click can never dismiss the obscured menu underneath it.
+function __arpg_movement_try_close_menu_from_outside() {
+    var _left_pressed = mouse_check_button_pressed(mb_left);
+    var _right_pressed = mouse_check_button_pressed(mb_right);
+    if ((!_left_pressed && !_right_pressed)
+        || FOCUS.out_of_focus())
+    {
+        return false;
+    }
+
+    for (var _i = ANCHOR.open_menus.count() - 1; _i >= 0; _i--) {
+        var _menu = ANCHOR.open_menus.get(_i);
+        if (_menu.data.pause == PauseStatus.EMPTY) {
+            continue;
+        }
+
+        // This is the topmost modal. Custom-exit menus (dialogue, prompts,
+        // cutscene UI) deliberately stop here. DragonShrine is the Skills
+        // screen and is the one safe custom-exit exception.
+        var _allows_outside_close = _menu.listen_for_exit_flag
+            || _menu.type == Menu.DragonShrine;
+        if (_menu.close_requested
+            || !_allows_outside_close
+            || _menu.canvas == undefined
+            || !_menu.canvas.is_unlocked()
+            || __arpg_movement_point_inside_menu(_menu))
+        {
+            return false;
+        }
+
+        if (_menu.type == Menu.DragonShrine
+            && _menu.state == DragonShrineState.TierScreen)
+        {
+            // Match the Skills screen's own Back action: return from a
+            // category's tiers to the category list. Passing the menu
+            // explicitly keeps the delayed transition callback independent
+            // of whatever `self` is active when the chain reaches it.
+            var _category = _menu.scroller.canvas.board_get("cat_key");
+            _menu.transition(
+                DragonShrineState.CategoryScreen,
+                function(_skills_menu, _category_key) {
+                    _skills_menu.create_category_nodes(_category_key);
+                    _skills_menu.scroller.free();
+                },
+                [_menu, _category],
+            );
+        } else {
+            // Category screen (and the Horse Shrine's single layer) mirrors
+            // its own Back action by closing.
+            _menu.close();
+        }
+
+        // Do not let the dismissing click reach UI or gameplay underneath.
+        if (_left_pressed) {
+            var _left_idx = array_index(MOUSE_BUTTONS, mb_left);
+            INPUT.raw_mouse[_left_idx] = set_flag(
+                INPUT.raw_mouse[_left_idx],
+                DigitalStatus.Muted
+            );
+        }
+        if (_right_pressed) {
+            var _right_idx = array_index(MOUSE_BUTTONS, mb_right);
+            INPUT.raw_mouse[_right_idx] = set_flag(
+                INPUT.raw_mouse[_right_idx],
+                DigitalStatus.Muted
+            );
+        }
+        return true;
+    }
+
+    return false;
 }
 
 // Returns the interaction geometry used by vanilla target selection.
@@ -574,12 +677,40 @@ function __arpg_movement_path_to(_x, _y, _path_data=undefined) {
     var _spd = ARI.get_move_speed();
     ARI.run_toggle = _old_toggle;
 
-    obj_ari.fsm.blackboard.set("itinerary", new Itinerary(List(new ItineraryItem(
+    var _itinerary = new Itinerary(List(new ItineraryItem(
         new LocationPosition(CURRENT_LOCATION_ID, Vec2(obj_ari.x, obj_ari.y)),
         new LocationPosition(CURRENT_LOCATION_ID, Vec2(_x, _y)),
         0,
         _path_data.output_list
-    ))));
+    )));
+
+    // Retarget an active tap-walk without restarting Pathfind. Its normal
+    // start callback snaps to the path's final list item: Ari's current
+    // position. The next step then spends one frame consuming that already
+    // reached waypoint with zero movement, which becomes a visible stutter
+    // when right click is tapped repeatedly.
+    //
+    // The path list is consumed from the end (destination first, start last).
+    // Install the replacement directly and discard only that reached start
+    // item, allowing this frame's Pathfind step to move toward the next point.
+    if (obj_ari.fsm.current_state_id() == PlayerState.Pathfind
+        && _rt.pathfinding
+        && obj_ari.fsm.next_state == undefined)
+    {
+        var _state = obj_ari.fsm.current_state();
+        _state.pathfinding_agent.set_path(_itinerary, 0);
+
+        var _remaining = _state.pathfinding_agent.todo_list();
+        if (_remaining.count() > 1) {
+            _remaining.pop();
+        }
+
+        _state.move_accel = Vec2(_spd, _spd);
+        _state.animation = _rt.running ? AnimationName.Run : AnimationName.Walk;
+        return true;
+    }
+
+    obj_ari.fsm.blackboard.set("itinerary", _itinerary);
     obj_ari.fsm.blackboard.set("move_accel", Vec2(_spd, _spd));
     obj_ari.fsm.blackboard.set("use_run_animation", _rt.running);
     obj_ari.fsm.blackboard.set("end_state", PlayerState.Default);
@@ -615,7 +746,19 @@ function arpg_movement_clock_tick(_ctx) {
     var _rt = __arpg_movement_runtime();
     var _cfg = arpg_movement_config();
 
-    if (!_cfg.enabled || game_paused()) {
+    if (!_cfg.enabled) {
+        __arpg_movement_reset(_rt);
+        return;
+    }
+
+    if (_cfg.click_outside_closes_menus
+        && __arpg_movement_try_close_menu_from_outside())
+    {
+        __arpg_movement_reset(_rt);
+        return;
+    }
+
+    if (game_paused()) {
         __arpg_movement_reset(_rt);
         return;
     }
@@ -662,6 +805,17 @@ function arpg_movement_clock_tick(_ctx) {
     }
 
     var _right_down = mouse_check_button(mb_right);
+    var _right_pressed = mouse_check_button_pressed(mb_right);
+
+    // Mute the physical press before checking cancellation bindings below.
+    // Interact is bound to right mouse by default; if an active tap-walk saw
+    // that press first, it stopped the old path and produced a pause before
+    // the release could retarget it. Other Interact bindings (such as E)
+    // remain unmuted and still cancel mouse movement normally.
+    if (_right_pressed) {
+        var _idx = array_index(MOUSE_BUTTONS, mb_right);
+        INPUT.raw_mouse[_idx] = set_flag(INPUT.raw_mouse[_idx], DigitalStatus.Muted);
+    }
 
     if (_in_default && _cfg.auto_select_action_item) {
         __arpg_movement_auto_select_action_item();
@@ -701,12 +855,7 @@ function arpg_movement_clock_tick(_ctx) {
     if (_right_down) {
         _rt.hold_frames += 1;
 
-        if (mouse_check_button_pressed(mb_right)) {
-            // Mute the raw press so Interact and anything else bound to
-            // right mouse stays silent until we decide what this click is.
-            var _idx = array_index(MOUSE_BUTTONS, mb_right);
-            INPUT.raw_mouse[_idx] = set_flag(INPUT.raw_mouse[_idx], DigitalStatus.Muted);
-
+        if (_right_pressed) {
             // Initial pace from where the cursor starts.
             _rt.running = point_distance(obj_ari.x, obj_ari.y, mouse_x(), mouse_y())
                 > (_cfg.walk_within_px + _cfg.run_beyond_px) * 0.5;
@@ -845,5 +994,5 @@ function arpg_movement_register_callbacks() {
 }
 
 // Boot wiring: memory-only top level.
-mmapi_mod_declare("arpg_movement", "2.0.0");
+mmapi_mod_declare("arpg_movement", "2.0.1");
 arpg_movement_register_callbacks();
