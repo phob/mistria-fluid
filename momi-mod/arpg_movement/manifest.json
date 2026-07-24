@@ -1,8 +1,8 @@
 {
     "name": "ARPG Movement",
     "author": "phobi666",
-    "version": "1.0.1",
-    "description": "ARPG-style mouse movement: hold right-click to steer the player toward the cursor (walking when it's close, running when far), tap right-click to pathfind to the clicked spot. WASD always stays in control.",
+    "version": "2.0.0",
+    "description": "ARPG-style mouse movement with click-to-move, smart interactions, mounted steering, and automatic tool swapping. WASD always stays in control.",
     "minInstallerVersion": "0.14.0",
     "manifestVersion": 1,
     "requires_hooks": ["game.clock_tick"]

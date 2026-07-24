@@ -1,45 +1,71 @@
-[size=4][b]ARPG Movement — Click or Hold to Move[/b][/size]
+[size=4][b]ARPG Movement 2.0.0 — Click, Hold, and Swap Tools Automatically[/b][/size]
 
-[size=4][b][color=#ff5555]⚠ Requires the MOMI 0.14.0 beta[/color][/b][/size]
-[b]The MOMI version on Nexus (0.13.x) can NOT install this mod[/b] — it predates MOMI's GML mod support and will silently skip it (the mod shows up as installed, but right-click does nothing in game).
-[b]Download the 0.14.0 beta from [url=https://github.com/Garethp/Mods-of-Mistria-Installer/releases]the MOMI GitHub releases page[/url][/b], then install as usual. Once MOMI 0.14.0 is released on Nexus, the normal version works.
+[size=4][b][color=#ff5555]⚠ Requires MOMI 0.14.0 beta 3 or newer[/color][/b][/size]
+[b]The MOMI version currently available on Nexus (0.13.x) cannot install this mod.[/b]
+[b]Download the latest 0.14.0 beta from [url=https://github.com/Garethp/Mods-of-Mistria-Installer/releases]the MOMI GitHub releases page[/url][/b], then install the mod normally.
 
-Move your character with the mouse, action-RPG style. WASD keeps working exactly as before — this adds a second way to get around, and the keyboard always wins when you touch it.
+Move through Mistria with the mouse like an action RPG, click characters and objects to approach them, and let the game choose the right tool when you click a resource. WASD still works exactly as before and always takes control the moment you use it.
 
-[size=3][b]Controls[/b][/size]
+[size=3][b]What's new in 2.0.0[/b][/size]
 [list]
-[*][b]Hold right mouse[/b] — your character steers toward your cursor like you're dragging them by an invisible leash. When the cursor is close (within 1 tile) they walk; pull it further away (beyond 2 tiles) and they run. The pace switch uses hysteresis, so they never flicker between walking and running.
-[*][b]Tap right mouse[/b] (under 0.6s) — your character pathfinds to the clicked spot using the game's own pathfinding, walking around obstacles on their own. A small essence poof marks the destination.
-[*][b]Tap right mouse next to an object or NPC[/b] — normal Interact, exactly like vanilla.
-[*][b]WASD / jump / tool / E / Esc[/b] — instantly cancels any mouse-driven walk.
+[*][b]Auto Tool Swapping[/b] — click a nearby rock, tree, stump, or dig spot and the correct tool is equipped automatically before your character acts.
+[*][b]Smart interactions[/b] — click a distant NPC, chest, door, or other usable object and your character walks over and interacts with it.
+[*][b]Mounted and swimming controls[/b] — hold right mouse to steer while riding or swimming too.
+[*][b]Clear click feedback[/b] — a normal poof marks a valid destination; a red poof tells you when a click cannot be reached.
+[*][b]Safer room movement[/b] — clicks outside a room no longer let the player walk past door transitions or leave the playable area.
 [/list]
 
-While you hold the button, the vanilla Interact (which shares the right mouse button) is suppressed — so steering past chests, NPCs, and doors never accidentally opens or triggers anything.
+[size=3][b]Mouse controls[/b][/size]
+[list]
+[*][b]Hold right mouse[/b] — steer toward the cursor. Your character walks when the cursor is close and runs when it is farther away. Hold your normal Walk control when you always want to walk.
+[*][b]Tap right mouse on the ground[/b] — walk to that spot automatically, going around obstacles along the way.
+[*][b]Tap right mouse on a character or object[/b] — walk into range and interact automatically. Nearby taps still work like the normal Interact button.
+[*][b]WASD / jump / tool / E / Esc[/b] — immediately cancels a mouse-driven walk, so keyboard controls always win.
+[/list]
+
+While right mouse is held, Interact is temporarily suppressed. You can steer past people, chests, and doors without accidentally activating them.
+
+[size=3][b]Auto Tool Swapping[/b][/size]
+Auto Tool Swapping is enabled by default and uses the same left-click you already use for tools:
+[list]
+[*]Click a [b]rock[/b] to equip a pickaxe.
+[*]Click a [b]tree or stump[/b] to equip an axe.
+[*]Click a [b]dig spot[/b] to equip a shovel.
+[*]In the [b]mines[/b], other action clicks equip a weapon when one is available.
+[*]The mod searches your whole inventory and changes toolbar pages when necessary.
+[*]It will not equip a tool that is too weak for the resource, and recognized resource clicks are left alone when the required tool is missing or out of reach.
+[/list]
+
+Press [b]F6[/b] to turn Auto Tool Swapping on or off. A notification confirms the change, and your choice is remembered. This feature only acts when left mouse is assigned to a normal tool-use control.
 
 [size=3][b]Installation[/b][/size]
 [list=1]
-[*]Install Mods of Mistria Installer (MOMI), version [b]0.14.0 or newer[/b] (the first version with the GML mod layer). Until 0.14.0 reaches [url=https://www.nexusmods.com/fieldsofmistria/mods/2]the Nexus page[/url], get the 0.14.0 beta from [url=https://github.com/Garethp/Mods-of-Mistria-Installer/releases]the MOMI GitHub releases[/url]. [b]The 0.13.x installer from Nexus cannot install this mod[/b] — it predates GML mod support and will skip it.
-[*]Extract this mod into your [b]mods[/b] folder so it looks like [font=Courier New]mods/arpg_movement/manifest.json[/font].
-[*]Run the installer.
+[*]Install [url=https://github.com/Garethp/Mods-of-Mistria-Installer/releases]MOMI 0.14.0 beta 3 or newer[/url]. Until 0.14.0 reaches [url=https://www.nexusmods.com/fieldsofmistria/mods/78]the MOMI Nexus page[/url], the 0.13.x Nexus download cannot install this mod.
+[*]Extract this mod into your [b]mods[/b] folder so the file is at [font=Courier New]mods/arpg_movement/manifest.json[/font].
+[*]Run MOMI and install your mods.
 [/list]
 
 [size=3][b]Configuration[/b][/size]
-After the first launch, a config file appears at [font=Courier New]%LOCALAPPDATA%\FieldsOfMistria\mod_data\arpg_movement\arpg_movement.json[/font]. Everything is tunable:
+After the first launch, settings appear at [font=Courier New]%LOCALAPPDATA%\FieldsOfMistria\mod_data\arpg_movement\arpg_movement.json[/font]:
 [list]
-[*][font=Courier New]tap_seconds[/font] — how long a press can be and still count as a tap (default 0.6)
-[*][font=Courier New]steer_start_seconds[/font] — how long before a hold starts steering (default 0.1)
-[*][font=Courier New]walk_within_px[/font] / [font=Courier New]run_beyond_px[/font] — the walk/run hysteresis band in pixels; 16 px = 1 tile (defaults 16 / 32)
-[*][font=Courier New]interact_radius_px[/font] — taps closer than this stay vanilla Interact (default 24)
-[*][font=Courier New]stop_within_px[/font] — the standstill deadzone around your character (default 8)
-[*][font=Courier New]click_marker[/font] — the poof at a tapped destination (default true)
-[*][font=Courier New]enabled[/font] — turn the whole mod off without uninstalling
+[*][font=Courier New]enabled[/font] — enable or disable the mod without uninstalling it
+[*][font=Courier New]tap_seconds[/font] — maximum time for a press to count as a tap (default 0.6)
+[*][font=Courier New]steer_start_seconds[/font] — delay before a hold begins steering (default 0.1)
+[*][font=Courier New]walk_within_px[/font] / [font=Courier New]run_beyond_px[/font] — distances used to switch between walking and running (defaults 16 / 32)
+[*][font=Courier New]interact_radius_px[/font] — distance where a ground tap stays a normal nearby interaction (default 24)
+[*][font=Courier New]stop_within_px[/font] — standstill area around the player (default 8)
+[*][font=Courier New]click_to_interact[/font] — walk to and use clicked characters and objects (default true)
+[*][font=Courier New]click_marker[/font] — show the normal destination poof (default true)
+[*][font=Courier New]invalid_click_marker[/font] — show a red poof for invalid destinations (default true)
+[*][font=Courier New]auto_select_action_item[/font] — enable Auto Tool Swapping (default true; also toggled with F6)
 [/list]
 
 [size=3][b]Compatibility & notes[/b][/size]
 [list]
-[*]Gamepad play is untouched — the mod only acts on mouse input.
-[*]Cutscene and scripted walks are untouched; the mod only cancels walks it started itself.
-[*]Works with rebound keys (cancels and the Walk pace check your actual bindings). If you rebind Interact away from right mouse, right mouse simply becomes a pure movement button.
-[*]Timing thresholds scale with the game's fps setting, so they hold at non-default [font=Courier New]--fps[/font] values.
-[*]Requires only the [font=Courier New]game.clock_tick[/font] MMAPI hook; no game files are replaced, so it coexists with other MOMI mods.
+[*]Gamepad play is untouched.
+[*]Cutscenes and scripted movement are untouched.
+[*]Mounted taps keep their normal interaction behavior.
+[*]Rebound movement, Walk, and cancellation controls are respected.
+[*]If Interact is moved away from right mouse, right mouse simply becomes a dedicated movement button.
+[*]Timing remains consistent at non-default frame-rate settings.
 [/list]

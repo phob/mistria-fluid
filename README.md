@@ -1,15 +1,23 @@
-# ARPG Movement (for Fields of Mistria)
+# ARPG Movement 2.0.0 (for Fields of Mistria)
 
-Mouse movement for the player, action-RPG style:
+Mouse movement and automatic tool swapping for action-RPG-style play:
 
 - **Hold right mouse** — steer toward the cursor. Walks when the cursor is
-  within 1 tile, runs beyond 2 tiles (hysteresis in between, so no
-  flickering). Stops instantly on release.
-- **Tap right mouse** (< 0.6s) — pathfind to the clicked spot with the game's
-  own pathfinding; an essence poof marks the destination.
-- **Tap next to an object/NPC** — vanilla Interact.
-- **WASD / jump / tool / E / Esc** — cancels any mouse walk; keyboard always
-  wins. Gamepad play and cutscenes are untouched.
+  close and runs when it is farther away. Holding the normal Walk control
+  keeps the player walking.
+- **Tap right mouse** — click-to-move around obstacles. A normal essence poof
+  marks the destination; a red poof means the click cannot be reached.
+- **Tap an object or NPC** — walk to it and interact automatically. Nearby
+  taps still behave like the normal Interact control.
+- **Ride or swim with the mouse** — hold-to-steer also works while mounted or
+  swimming without replacing their normal actions.
+- **Auto Tool Swapping** — left-click a nearby rock, tree, stump, or dig spot
+  and the correct usable tool is selected from anywhere in the inventory
+  before the action happens. General action clicks in the mines select a
+  weapon. Press **F6** to toggle this feature; the choice is remembered.
+- **WASD / jump / tool / E / Esc** — cancels any mouse-driven walk immediately.
+  Keyboard control always wins, while gamepad play and cutscenes remain
+  untouched.
 
 Built as a [MOMI](https://github.com/Garethp/Mods-of-Mistria-Installer)
 (0.14.0+) MMAPI mod. The entire mod is one GML file:
@@ -32,6 +40,6 @@ cd "/d/SteamLibrary/steamapps/common/Fields of Mistria" && \
 
 ## Publishing
 
-- `dist/ARPGMovement-1.0.0.zip` — Nexus-ready package.
+- `dist/ARPGMovement-2.0.0.zip` — Nexus-ready package.
 - `nexus/DESCRIPTION.bbcode` — mod page description (BBCode).
 - `nexus/UPLOAD_CHECKLIST.md` — upload steps.
