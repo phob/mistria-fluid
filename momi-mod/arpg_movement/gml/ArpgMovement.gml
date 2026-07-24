@@ -551,6 +551,18 @@ function __arpg_movement_hold_walk_binding() {
 // without calculating the winning path twice. Returns false when none exists.
 function __arpg_movement_path_to(_x, _y, _path_data=undefined) {
     var _rt = __arpg_movement_runtime();
+
+    // Pathfind moves Ari directly along its waypoint list without collision
+    // checks. Hyperpath can still return a path for an out-of-room cursor
+    // position, which lets Ari skip a door transition and eventually indexes
+    // GRID outside its dimensions. Reject both endpoints before making an
+    // itinerary; the caller will show the normal invalid-click marker.
+    if (GRID.try_node_index_for_room_position(obj_ari.x, obj_ari.y) == undefined
+        || GRID.try_node_index_for_room_position(_x, _y) == undefined)
+    {
+        return false;
+    }
+
     if (_path_data == undefined) {
         _path_data = PATHFINDING.calculate_local_path(obj_ari.x, obj_ari.y, _x, _y, true);
     }
@@ -576,6 +588,23 @@ function __arpg_movement_path_to(_x, _y, _path_data=undefined) {
     return true;
 }
 
+// F6 is registered through MMAPI so conflicts with other mods are diagnosed
+// in one place instead of competing through independent raw-key polling.
+function arpg_movement_toggle_auto_select() {
+    if (!instance_exists(obj_ari) || game_paused()) return;
+
+    var _cfg = arpg_movement_config();
+    if (!_cfg.enabled) return;
+
+    _cfg.auto_select_action_item = !_cfg.auto_select_action_item;
+    mmapi_config_write("arpg_movement", ARPG_MOVEMENT_CONFIG_VERSION, _cfg);
+    create_notification(ANCHOR.wrap_for_local(
+        _cfg.auto_select_action_item
+            ? "ARPG auto-select: ON"
+            : "ARPG auto-select: OFF"
+    ));
+}
+
 // The per-frame heartbeat. game.clock_tick fires in the game's step_begin,
 // after INPUT.begin_frame() and before any object steps — early enough that
 // everything injected below (mute, virtual stick, Walk binding) is in place
@@ -589,16 +618,6 @@ function arpg_movement_clock_tick(_ctx) {
     if (!_cfg.enabled || game_paused()) {
         __arpg_movement_reset(_rt);
         return;
-    }
-
-    if (keyboard_check_pressed(vk_f6)) {
-        _cfg.auto_select_action_item = !_cfg.auto_select_action_item;
-        mmapi_config_write("arpg_movement", ARPG_MOVEMENT_CONFIG_VERSION, _cfg);
-        create_notification(ANCHOR.wrap_for_local(
-            _cfg.auto_select_action_item
-                ? "ARPG auto-select: ON"
-                : "ARPG auto-select: OFF"
-        ));
     }
 
     if (ON_GAMEPAD) {
@@ -818,6 +837,11 @@ function arpg_movement_register_callbacks() {
     _rt.registered_hooks = true;
 
     mmapi_on("game.clock_tick", arpg_movement_clock_tick);
+
+    var _f6 = mmapi_hotkey_vk_from_name("F6");
+    if (_f6 != undefined) {
+        mmapi_hotkey_register(_f6, arpg_movement_toggle_auto_select);
+    }
 }
 
 // Boot wiring: memory-only top level.
