@@ -13,15 +13,17 @@
 // - The raw right-button press is muted the moment it lands, so Interact
 //   (and anything else bound to right mouse) never fires during a hold.
 // - WASD, jump, tool use, E, or Esc cancel a mouse-driven walk instantly.
-// - Steering also works while swimming (taps don't: no pathfinding on water).
+// - Steering also works while swimming and mounted. Taps don't pathfind in
+//   either case; mounted taps are handed back to vanilla Interact.
 //
 // Steering works by feeding the cursor direction into the input system as a
 // virtual analog stick (`INPUT.gp_left_stick`), which the player's normal
 // movement code reads through the default `left_stick_*` bindings. Movement,
 // collision sliding, facing, and animation are all vanilla — the mod never
 // touches the player's state machine while steering. Slow walking near the
-// cursor is done the same way: by holding the vanilla Walk binding down.
-// Taps drive the game's own PlayerState.Pathfind, like scripted walks.
+// cursor, or while the player holds their bound Walk control, is done the same
+// way: by holding the vanilla Walk binding down. Taps drive the game's own
+// PlayerState.Pathfind, like scripted walks.
 
 #macro ARPG_MOVEMENT_CONFIG_VERSION 1
 
@@ -138,10 +140,11 @@ function arpg_movement_clock_tick(_ctx) {
     }
     var _in_default = _sid == PlayerState.Default;
     var _in_swim = _sid == PlayerState.Swim;
+    var _in_mount = _sid == PlayerState.MountDefault;
     var _in_our_path = _sid == PlayerState.Pathfind && _rt.pathfinding;
 
-    // Tools, cutscenes, mounts, other mods' pathfinds: stay out.
-    if (!_in_default && !_in_swim && !_in_our_path) {
+    // Tools, cutscenes, other mods' pathfinds: stay out.
+    if (!_in_default && !_in_swim && !_in_mount && !_in_our_path) {
         __arpg_movement_reset(_rt);
         return;
     }
@@ -199,11 +202,16 @@ function arpg_movement_clock_tick(_ctx) {
             var _my = mouse_y();
             var _dist = point_distance(obj_ari.x, obj_ari.y, _mx, _my);
 
-            // Walk/run hysteresis: no single boundary to flicker across.
-            if (_dist <= _cfg.walk_within_px) {
+            // An explicit Walk input wins over automatic pacing. Otherwise,
+            // hysteresis avoids a single distance boundary to flicker across.
+            if (INPUT.check(InputId.Walk)) {
                 _rt.running = false;
-            } else if (_dist >= _cfg.run_beyond_px) {
-                _rt.running = true;
+            } else {
+                if (_dist <= _cfg.walk_within_px) {
+                    _rt.running = false;
+                } else if (_dist >= _cfg.run_beyond_px) {
+                    _rt.running = true;
+                }
             }
 
             // A tap-walk in progress hands over to steering.
@@ -211,9 +219,9 @@ function arpg_movement_clock_tick(_ctx) {
                 __arpg_movement_stop_walk(_rt);
             }
 
-            // Swim steers the same way: the Swim state reads movement through
-            // the identical binding path and picks its own speed/animation.
-            if ((_in_default || _in_swim) && _dist > _cfg.stop_within_px) {
+            // Swim and MountDefault read movement through the same binding
+            // path and pick their own speed and animation.
+            if ((_in_default || _in_swim || _in_mount) && _dist > _cfg.stop_within_px) {
                 // The virtual stick: the player's movement code reads this
                 // through the default left_stick bindings and does the rest
                 // (collision sliding, facing, animation) exactly as vanilla.
@@ -234,7 +242,14 @@ function arpg_movement_clock_tick(_ctx) {
                 // steered responsively before committing to pathfinding.
                 var _tx = mouse_x();
                 var _ty = mouse_y();
-                if (point_distance(obj_ari.x, obj_ari.y, _tx, _ty) > _cfg.interact_radius_px) {
+                if (_in_mount) {
+                    // Mounted taps never enter the on-foot Pathfind state.
+                    // Return the muted press so mounted interaction remains
+                    // exactly vanilla regardless of cursor distance.
+                    var _mount_idx = array_index(MOUSE_BUTTONS, mb_right);
+                    INPUT.raw_mouse[_mount_idx] = set_flag(INPUT.raw_mouse[_mount_idx], DigitalStatus.Pressed);
+                    INPUT.raw_mouse[_mount_idx] = remove_flag(INPUT.raw_mouse[_mount_idx], DigitalStatus.Muted);
+                } else if (point_distance(obj_ari.x, obj_ari.y, _tx, _ty) > _cfg.interact_radius_px) {
                     // Tap on open ground: pathfind there. Not while swimming —
                     // the grid doesn't path over water and the Pathfind state
                     // would walk on it.

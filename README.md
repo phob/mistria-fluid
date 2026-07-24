@@ -35,5 +35,3 @@ cd "/d/SteamLibrary/steamapps/common/Fields of Mistria" && \
 - `dist/ARPGMovement-1.0.0.zip` — Nexus-ready package.
 - `nexus/DESCRIPTION.bbcode` — mod page description (BBCode).
 - `nexus/UPLOAD_CHECKLIST.md` — upload steps.
-
-See `CLAUDE.md` for development context and engine internals.
