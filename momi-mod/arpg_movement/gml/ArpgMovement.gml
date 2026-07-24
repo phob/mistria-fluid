@@ -17,6 +17,10 @@
 // - WASD, jump, tool use, E, or Esc cancel a mouse-driven walk instantly.
 // - Steering also works while swimming and mounted. Taps don't pathfind in
 //   either case; mounted taps are handed back to vanilla Interact.
+// - F6 toggles action-item auto-selection. When enabled and left mouse is
+//   bound to a vanilla tool-use action, a nearby clicked rock, tree/stump, or
+//   dig site selects its usable inventory tool before vanilla consumes that
+//   same click. Other world clicks select an inventory weapon only in mines.
 //
 // Steering works by feeding the cursor direction into the input system as a
 // virtual analog stick (`INPUT.gp_left_stick`), which the player's normal
@@ -60,6 +64,7 @@ function arpg_movement_config() {
         click_to_interact: mmapi_config_bool(_source, "click_to_interact", true),
         click_marker: mmapi_config_bool(_source, "click_marker", true),
         invalid_click_marker: mmapi_config_bool(_source, "invalid_click_marker", true),
+        auto_select_action_item: mmapi_config_bool(_source, "auto_select_action_item", true),
     };
     mmapi_config_write("arpg_movement", ARPG_MOVEMENT_CONFIG_VERSION, _rt.cfg);
     return _rt.cfg;
@@ -299,6 +304,227 @@ function __arpg_movement_plan_interact(_target) {
     return _best;
 }
 
+// True only when the physical left mouse button is one of the player's
+// configured vanilla tool-use bindings. LeftMouse itself is also bound to the
+// button for UI use and is intentionally not enough to enable this feature.
+function __arpg_movement_left_is_action() {
+    var _inputs = [InputId.UseToolCharged, InputId.UseToolRepeated];
+    for (var _i = 0; _i < array_length(_inputs); _i++) {
+        var _bindings = BINDINGS.bindings[_inputs[_i]];
+        for (var _j = 0; _j < array_length(_bindings); _j++) {
+            var _binding = _bindings[_j];
+            if (_binding != undefined
+                && _binding.type == BindingType.Mouse
+                && _binding.keycode == mb_left)
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+// Mirrors the ordinary mouse-target branch of obj_ari.update_cell_select().
+// Tool actions use the returned 2x2 cell, so validating against it guarantees
+// that the same click which changes tools can actually affect the clicked node.
+function __arpg_movement_consider_mouse_cell(_x_offset, _y_offset, _bundle) {
+    var _candidate_x = _bundle.norm_x + _x_offset * 16;
+    var _candidate_y = _bundle.norm_y + _y_offset * 16;
+    var _dx = _candidate_x - _bundle.mouse_x;
+    var _dy = _candidate_y - _bundle.mouse_y;
+    var _score = _dx * _dx + _dy * _dy;
+    if (_score < _bundle.best_score) {
+        _bundle.best_score = _score;
+        _bundle.best_x = _candidate_x;
+        _bundle.best_y = _candidate_y;
+    }
+}
+
+function __arpg_movement_mouse_cell_select() {
+    var _base_x = obj_ari.x % 16;
+    var _base_y = obj_ari.y % 16;
+    var _bundle = {
+        norm_x: 16 * (obj_ari.x div 16),
+        norm_y: 16 * (obj_ari.y div 16),
+        mouse_x: mouse_x() - 8,
+        mouse_y: mouse_y() - 8,
+        best_x: obj_ari.x,
+        best_y: obj_ari.y,
+        best_score: infinity,
+    };
+
+    for (var _xx = -1; _xx < 2; _xx++) {
+        for (var _yy = -1; _yy < 2; _yy++) {
+            __arpg_movement_consider_mouse_cell(_xx, _yy, _bundle);
+        }
+    }
+
+    switch (obj_ari.cardinal) {
+        case Cardinal.West:
+            if (_base_x < 8) {
+                __arpg_movement_consider_mouse_cell(-2, 0, _bundle);
+                __arpg_movement_consider_mouse_cell(-2, _base_y < 8 ? -1 : 1, _bundle);
+            }
+            break;
+        case Cardinal.East:
+            if (_base_x >= 8) {
+                __arpg_movement_consider_mouse_cell(2, 0, _bundle);
+                __arpg_movement_consider_mouse_cell(2, _base_y < 8 ? -1 : 1, _bundle);
+            }
+            break;
+        case Cardinal.North:
+            if (_base_y < 8) {
+                __arpg_movement_consider_mouse_cell(0, -2, _bundle);
+                __arpg_movement_consider_mouse_cell(_base_x < 8 ? -1 : 1, -2, _bundle);
+            }
+            break;
+        case Cardinal.South:
+            if (_base_y >= 8) {
+                __arpg_movement_consider_mouse_cell(0, 2, _bundle);
+                __arpg_movement_consider_mouse_cell(_base_x < 8 ? -1 : 1, 2, _bundle);
+            }
+            break;
+    }
+
+    return {
+        x: _bundle.best_x div 8,
+        y: _bundle.best_y div 8,
+    };
+}
+
+// Visible node sprites extend beyond their grid footprint (especially trees),
+// so prefer the renderer under the cursor and fall back to the raw grid cell.
+function __arpg_movement_clicked_node() {
+    var _renderer = overlap_point(mouse_x(), mouse_y(), obj_node_renderer);
+    if (_renderer != undefined
+        && instance_exists(_renderer)
+        && _renderer.node != undefined)
+    {
+        return _renderer.node;
+    }
+
+    var _ni = GRID.try_node_index_for_room_position(mouse_x(), mouse_y());
+    if (_ni != undefined) {
+        return GRID.node_parent[_ni];
+    }
+    return undefined;
+}
+
+function __arpg_movement_item_matches(_item, _use, _tool_type=undefined, _minimum_quality=undefined) {
+    if (_item == undefined || _item.prototype.use != _use) return false;
+    if (_tool_type != undefined && _item.prototype.tool_type != _tool_type) return false;
+    if (_minimum_quality != undefined && _item.prototype.quality < _minimum_quality) return false;
+    return true;
+}
+
+// Keeps a suitable current selection when possible, otherwise searches every
+// inventory page in stable slot order.
+function __arpg_movement_find_item(_use, _tool_type=undefined, _minimum_quality=undefined) {
+    var _held = ARI.held_item();
+    if (__arpg_movement_item_matches(_held, _use, _tool_type, _minimum_quality)) {
+        return ARI.held_item_index;
+    }
+
+    for (var _i = 0; _i < ARI.inventory.size(); _i++) {
+        var _item = ARI.inventory.slot(_i).item;
+        if (__arpg_movement_item_matches(_item, _use, _tool_type, _minimum_quality)) {
+            return _i;
+        }
+    }
+    return undefined;
+}
+
+// ARI changes the selected slot and cursor. It deliberately leaves toolbar
+// page ownership to callers, so an automatic cross-page selection must update
+// the visible page too.
+function __arpg_movement_select_item(_index) {
+    if (_index == undefined) return false;
+    if (ARI.held_item_index == _index) return true;
+    if (!ARI.set_held_item_index(_index)) return false;
+
+    var _toolbar = ANCHOR.get_menu(Menu.Toolbar);
+    if (_toolbar != undefined) {
+        var _page = _index div 10;
+        if (_toolbar.page != _page) {
+            _toolbar.page = _page;
+            _toolbar.update();
+        }
+    }
+    return true;
+}
+
+function __arpg_movement_tool_reaches_node(_node, _item) {
+    var _selection = __arpg_movement_mouse_cell_select();
+    for (var _xx = 0; _xx < 2; _xx++) {
+        for (var _yy = 0; _yy < 2; _yy++) {
+            var _cell_x = _selection.x + _xx;
+            var _cell_y = _selection.y + _yy;
+            var _ni = GRID.try_node_index_for_cell(_cell_x, _cell_y);
+            if (_ni != undefined
+                && GRID.node_parent[_ni] == _node
+                && GRID.item_effects_node_at_cell(_cell_x, _cell_y, _item.prototype))
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+// Selects the item before AriFsm's Default step reads this frame's unchanged
+// left-button press. Recognized tool targets never fall back to a weapon when
+// the required tool is absent, inadequate, or out of range.
+function __arpg_movement_auto_select_action_item() {
+    if (!mouse_check_button_pressed(mb_left)
+        || !__arpg_movement_left_is_action()
+        || ARI.held_animal_id != undefined)
+    {
+        return;
+    }
+
+    // Anchor consumes HUD clicks later in the frame. Its hover remains live
+    // here, early enough to avoid selecting an item behind the toolbar.
+    if (ANCHOR.current_hovered_node != undefined) return;
+
+    var _node = __arpg_movement_clicked_node();
+    if (_node != undefined) {
+        var _category = object_id_to_object_category(_node.object_id);
+        var _tool_type = undefined;
+        var _minimum_quality = undefined;
+
+        switch (_category) {
+            case ObjectCategory.Rock:
+                _tool_type = ToolType.PickAxe;
+                _minimum_quality = _node.prototype.minimum_quality;
+                break;
+            case ObjectCategory.Tree:
+            case ObjectCategory.Stump:
+                _tool_type = ToolType.Axe;
+                _minimum_quality = _node.prototype.minimum_quality;
+                break;
+            case ObjectCategory.DigSite:
+                _tool_type = ToolType.Shovel;
+                break;
+        }
+
+        if (_tool_type != undefined) {
+            var _tool_index = __arpg_movement_find_item(ItemUse.UseTool, _tool_type, _minimum_quality);
+            if (_tool_index == undefined) return;
+
+            var _tool = ARI.inventory.slot(_tool_index).item;
+            if (!__arpg_movement_tool_reaches_node(_node, _tool)) return;
+            __arpg_movement_select_item(_tool_index);
+            return;
+        }
+    }
+
+    // Outside the mines, ambiguous clicks preserve the user's farming,
+    // placement, or other current selection.
+    if (is_dungeon_room(room())) {
+        __arpg_movement_select_item(__arpg_movement_find_item(ItemUse.Attack));
+    }
+}
+
 // Presses the vanilla Walk binding for this frame, so the engine itself
 // picks the walk speed and walk animation.
 function __arpg_movement_hold_walk_binding() {
@@ -360,7 +586,22 @@ function arpg_movement_clock_tick(_ctx) {
     var _rt = __arpg_movement_runtime();
     var _cfg = arpg_movement_config();
 
-    if (!_cfg.enabled || ON_GAMEPAD || game_paused()) {
+    if (!_cfg.enabled || game_paused()) {
+        __arpg_movement_reset(_rt);
+        return;
+    }
+
+    if (keyboard_check_pressed(vk_f6)) {
+        _cfg.auto_select_action_item = !_cfg.auto_select_action_item;
+        mmapi_config_write("arpg_movement", ARPG_MOVEMENT_CONFIG_VERSION, _cfg);
+        create_notification(ANCHOR.wrap_for_local(
+            _cfg.auto_select_action_item
+                ? "ARPG auto-select: ON"
+                : "ARPG auto-select: OFF"
+        ));
+    }
+
+    if (ON_GAMEPAD) {
         __arpg_movement_reset(_rt);
         return;
     }
@@ -402,6 +643,10 @@ function arpg_movement_clock_tick(_ctx) {
     }
 
     var _right_down = mouse_check_button(mb_right);
+
+    if (_in_default && _cfg.auto_select_action_item) {
+        __arpg_movement_auto_select_action_item();
+    }
 
     // No mouse gesture or mod-owned path is active. Avoid resolving input
     // bindings every frame while the mod is idle.
