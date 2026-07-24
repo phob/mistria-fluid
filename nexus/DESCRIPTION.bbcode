@@ -1,0 +1,45 @@
+[size=4][b]ARPG Movement — Click or Hold to Move[/b][/size]
+
+[size=4][b][color=#ff5555]⚠ Requires the MOMI 0.14.0 beta[/color][/b][/size]
+[b]The MOMI version on Nexus (0.13.x) can NOT install this mod[/b] — it predates MOMI's GML mod support and will silently skip it (the mod shows up as installed, but right-click does nothing in game).
+[b]Download the 0.14.0 beta from [url=https://github.com/Garethp/Mods-of-Mistria-Installer/releases]the MOMI GitHub releases page[/url][/b], then install as usual. Once MOMI 0.14.0 is released on Nexus, the normal version works.
+
+Move your character with the mouse, action-RPG style. WASD keeps working exactly as before — this adds a second way to get around, and the keyboard always wins when you touch it.
+
+[size=3][b]Controls[/b][/size]
+[list]
+[*][b]Hold right mouse[/b] — your character steers toward your cursor like you're dragging them by an invisible leash. When the cursor is close (within 1 tile) they walk; pull it further away (beyond 2 tiles) and they run. The pace switch uses hysteresis, so they never flicker between walking and running.
+[*][b]Tap right mouse[/b] (under 0.6s) — your character pathfinds to the clicked spot using the game's own pathfinding, walking around obstacles on their own. A small essence poof marks the destination.
+[*][b]Tap right mouse next to an object or NPC[/b] — normal Interact, exactly like vanilla.
+[*][b]WASD / jump / tool / E / Esc[/b] — instantly cancels any mouse-driven walk.
+[/list]
+
+While you hold the button, the vanilla Interact (which shares the right mouse button) is suppressed — so steering past chests, NPCs, and doors never accidentally opens or triggers anything.
+
+[size=3][b]Installation[/b][/size]
+[list=1]
+[*]Install Mods of Mistria Installer (MOMI), version [b]0.14.0 or newer[/b] (the first version with the GML mod layer). Until 0.14.0 reaches [url=https://www.nexusmods.com/fieldsofmistria/mods/2]the Nexus page[/url], get the 0.14.0 beta from [url=https://github.com/Garethp/Mods-of-Mistria-Installer/releases]the MOMI GitHub releases[/url]. [b]The 0.13.x installer from Nexus cannot install this mod[/b] — it predates GML mod support and will skip it.
+[*]Extract this mod into your [b]mods[/b] folder so it looks like [font=Courier New]mods/arpg_movement/manifest.json[/font].
+[*]Run the installer.
+[/list]
+
+[size=3][b]Configuration[/b][/size]
+After the first launch, a config file appears at [font=Courier New]%LOCALAPPDATA%\FieldsOfMistria\mod_data\arpg_movement\arpg_movement.json[/font]. Everything is tunable:
+[list]
+[*][font=Courier New]tap_seconds[/font] — how long a press can be and still count as a tap (default 0.6)
+[*][font=Courier New]steer_start_seconds[/font] — how long before a hold starts steering (default 0.1)
+[*][font=Courier New]walk_within_px[/font] / [font=Courier New]run_beyond_px[/font] — the walk/run hysteresis band in pixels; 16 px = 1 tile (defaults 16 / 32)
+[*][font=Courier New]interact_radius_px[/font] — taps closer than this stay vanilla Interact (default 24)
+[*][font=Courier New]stop_within_px[/font] — the standstill deadzone around your character (default 8)
+[*][font=Courier New]click_marker[/font] — the poof at a tapped destination (default true)
+[*][font=Courier New]enabled[/font] — turn the whole mod off without uninstalling
+[/list]
+
+[size=3][b]Compatibility & notes[/b][/size]
+[list]
+[*]Gamepad play is untouched — the mod only acts on mouse input.
+[*]Cutscene and scripted walks are untouched; the mod only cancels walks it started itself.
+[*]Works with rebound keys (cancels and the Walk pace check your actual bindings). If you rebind Interact away from right mouse, right mouse simply becomes a pure movement button.
+[*]Timing thresholds scale with the game's fps setting, so they hold at non-default [font=Courier New]--fps[/font] values.
+[*]Requires only the [font=Courier New]game.clock_tick[/font] MMAPI hook; no game files are replaced, so it coexists with other MOMI mods.
+[/list]
