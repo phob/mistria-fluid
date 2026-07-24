@@ -8,8 +8,10 @@
 // - Releasing within `tap_seconds` commits the cursor position to pathfinding,
 //   even if responsive steering has already begun. This intentional overlap
 //   gives clicks a forgiving release window without making holds feel delayed.
-//   Releases near the player re-inject the press instead, so tap-to-interact
-//   with nearby objects still works.
+//   When `click_to_interact` is enabled, tapping a distant interactable paths
+//   to its nearest reachable side and performs the vanilla interaction on
+//   arrival. Releases near the player re-inject the press instead, so normal
+//   tap-to-interact still works.
 // - The raw right-button press is muted the moment it lands, so Interact
 //   (and anything else bound to right mouse) never fires during a hold.
 // - WASD, jump, tool use, E, or Esc cancel a mouse-driven walk instantly.
@@ -36,6 +38,7 @@ function __arpg_movement_runtime() {
             hold_frames: 0,
             running: true,
             pathfinding: false,
+            interact_target: undefined,
         };
     }
     return global.__arpg_movement;
@@ -54,7 +57,9 @@ function arpg_movement_config() {
         run_beyond_px: mmapi_config_number(_source, "run_beyond_px", 32, 0, 640),
         interact_radius_px: mmapi_config_number(_source, "interact_radius_px", 24, 0, 64),
         stop_within_px: mmapi_config_number(_source, "stop_within_px", 8, 0, 32),
+        click_to_interact: mmapi_config_bool(_source, "click_to_interact", true),
         click_marker: mmapi_config_bool(_source, "click_marker", true),
+        invalid_click_marker: mmapi_config_bool(_source, "invalid_click_marker", true),
     };
     mmapi_config_write("arpg_movement", ARPG_MOVEMENT_CONFIG_VERSION, _rt.cfg);
     return _rt.cfg;
@@ -64,11 +69,234 @@ function __arpg_movement_reset(_rt) {
     _rt.hold_frames = 0;
 }
 
+function __arpg_movement_clear_interact(_rt) {
+    _rt.interact_target = undefined;
+}
+
 // Ends a mouse-driven Pathfind walk and hands control back to the player.
 function __arpg_movement_stop_walk(_rt) {
     obj_ari.set_animation(AnimationName.Idle);
     obj_ari.fsm.change_state(PlayerState.Default);
     _rt.pathfinding = false;
+    __arpg_movement_clear_interact(_rt);
+}
+
+// The normal destination poof doubles as failure feedback when tinted red.
+function __arpg_movement_show_marker(_x, _y, _valid) {
+    var _effect = create_animation_effect(_x, _y, -100000, spr_fx_poof1_essence_once);
+    if (!_valid) {
+        _effect.image_blend = make_color_rgb(255, 72, 72);
+    }
+}
+
+// Returns the interaction geometry used by vanilla target selection.
+function __arpg_movement_interact_bounds(_target) {
+    switch (_target.interactable_mode) {
+        case InteractableMode.Circle:
+            var _cx = _target.x;
+            var _cy = _target.y;
+            if (_target.offset_with_cardinal) {
+                switch (_target.animator.cardinality) {
+                    case Cardinal.East:  _cx += _target.interact_nudge_distance; break;
+                    case Cardinal.West:  _cx -= _target.interact_nudge_distance; break;
+                    case Cardinal.South: _cy += _target.interact_nudge_distance; break;
+                    case Cardinal.North: _cy -= _target.interact_nudge_distance; break;
+                }
+            }
+            var _radius = max(_target.circle_size, 1);
+            return {
+                left: _cx - _radius,
+                top: _cy - _radius,
+                right: _cx + _radius,
+                bottom: _cy + _radius,
+                center_x: _cx,
+                center_y: _cy,
+            };
+
+        case InteractableMode.Bbox:
+            var _old_mask = undefined;
+            if (_target.override_mask != undefined) {
+                _old_mask = _target.mask_index;
+                _target.mask_index = _target.override_mask;
+            }
+            var _bounds = {
+                left: _target.bbox_left,
+                top: _target.bbox_top,
+                right: _target.bbox_right,
+                bottom: _target.bbox_bottom,
+                center_x: (_target.bbox_left + _target.bbox_right) * 0.5,
+                center_y: (_target.bbox_top + _target.bbox_bottom) * 0.5,
+            };
+            if (_old_mask != undefined) {
+                _target.mask_index = _old_mask;
+            }
+            return _bounds;
+
+        case InteractableMode.Box:
+            return {
+                left: _target.interaction_center.x - _target.interaction_half_size.x,
+                top: _target.interaction_center.y - _target.interaction_half_size.y,
+                right: _target.interaction_center.x + _target.interaction_half_size.x,
+                bottom: _target.interaction_center.y + _target.interaction_half_size.y,
+                center_x: _target.interaction_center.x,
+                center_y: _target.interaction_center.y,
+            };
+    }
+    return undefined;
+}
+
+// Distance from a point to the target's vanilla interaction shape.
+function __arpg_movement_distance_to_interact(_target, _x, _y) {
+    var _bounds = __arpg_movement_interact_bounds(_target);
+    if (_bounds == undefined) return infinity;
+
+    if (_target.interactable_mode == InteractableMode.Circle) {
+        return max(point_distance(_x, _y, _bounds.center_x, _bounds.center_y)
+            - _target.circle_size, 0);
+    }
+
+    var _dx = max(abs(_x - _bounds.center_x) - (_bounds.right - _bounds.left) * 0.5, 0);
+    var _dy = max(abs(_y - _bounds.center_y) - (_bounds.bottom - _bounds.top) * 0.5, 0);
+    return sqrt(_dx * _dx + _dy * _dy);
+}
+
+// Finds the closest live interactable whose interaction shape or visible
+// collision bounds contain the click.
+function __arpg_movement_interactable_at(_x, _y) {
+    var _best = undefined;
+    var _best_distance = infinity;
+
+    for (var _i = 0; _i < INTERACTABLES.count(); _i++) {
+        var _candidate = INTERACTABLES.get(_i);
+        if (_candidate == undefined
+            || !instance_exists(_candidate)
+            || !_candidate.has_potential_interactions())
+        {
+            continue;
+        }
+
+        var _bounds = __arpg_movement_interact_bounds(_candidate);
+        if (_bounds == undefined) continue;
+
+        var _hit = _x >= _bounds.left - 2
+            && _x <= _bounds.right + 2
+            && _y >= _bounds.top - 2
+            && _y <= _bounds.bottom + 2;
+
+        // Circle-mode objects include NPCs. Their interaction circle is at
+        // their feet, so also accept clicks on their visible collision bounds.
+        if (!_hit && _candidate.interactable_mode == InteractableMode.Circle) {
+            _hit = _x >= _candidate.bbox_left - 2
+                && _x <= _candidate.bbox_right + 2
+                && _y >= _candidate.bbox_top - 2
+                && _y <= _candidate.bbox_bottom + 2;
+        }
+
+        if (_hit) {
+            var _distance = point_distance(_x, _y, _bounds.center_x, _bounds.center_y);
+            if (_distance < _best_distance) {
+                _best = _candidate;
+                _best_distance = _distance;
+            }
+        }
+    }
+
+    return _best;
+}
+
+// Faces a target and interacts only if vanilla selects that exact target.
+// This prevents a path from activating a neighboring object after the clicked
+// target moved or disappeared.
+function __arpg_movement_try_interact(_target) {
+    if (_target == undefined || !instance_exists(_target)) return false;
+
+    var _bounds = __arpg_movement_interact_bounds(_target);
+    if (_bounds == undefined) return false;
+
+    obj_ari.face_dir(point_direction(
+        obj_ari.x,
+        obj_ari.y,
+        _bounds.center_x,
+        _bounds.center_y
+    ));
+
+    var _selection = find_nearest_interactable(obj_ari.collision_list, obj_ari);
+    if (_selection != _target) return false;
+
+    var _callback = _target.attempt_interact(true);
+    if (_callback == undefined) return false;
+    _callback();
+    return true;
+}
+
+// Calculates reachable grid-cell centers around the target and returns the
+// shortest candidate from which vanilla considers the target in range.
+function __arpg_movement_plan_interact(_target) {
+    var _bounds = __arpg_movement_interact_bounds(_target);
+    if (_bounds == undefined) return undefined;
+
+    var _left_cell = floor(_bounds.left / 8) - 1;
+    var _right_cell = floor(_bounds.right / 8) + 1;
+    var _top_cell = floor(_bounds.top / 8) - 1;
+    var _bottom_cell = floor(_bounds.bottom / 8) + 1;
+    var _candidates = [];
+
+    for (var _gy = _top_cell + 1; _gy < _bottom_cell; _gy++) {
+        array_push(_candidates, [_left_cell * 8 + 4, _gy * 8 + 4]);
+        array_push(_candidates, [_right_cell * 8 + 4, _gy * 8 + 4]);
+    }
+    for (var _gx = _left_cell + 1; _gx < _right_cell; _gx++) {
+        array_push(_candidates, [_gx * 8 + 4, _top_cell * 8 + 4]);
+        array_push(_candidates, [_gx * 8 + 4, _bottom_cell * 8 + 4]);
+    }
+
+    // Corners are useful when furniture is tight against a wall.
+    array_push(_candidates, [_left_cell * 8 + 4, _top_cell * 8 + 4]);
+    array_push(_candidates, [_right_cell * 8 + 4, _top_cell * 8 + 4]);
+    array_push(_candidates, [_left_cell * 8 + 4, _bottom_cell * 8 + 4]);
+    array_push(_candidates, [_right_cell * 8 + 4, _bottom_cell * 8 + 4]);
+
+    var _best = undefined;
+    var _best_distance = infinity;
+    for (var _j = 0; _j < array_length(_candidates); _j++) {
+        var _pos = _candidates[_j];
+        var _px = _pos[0];
+        var _py = _pos[1];
+        var _dx = _bounds.center_x - _px;
+        var _dy = _bounds.center_y - _py;
+        var _probe_x = _px;
+        var _probe_y = _py;
+
+        if (abs(_dx) > abs(_dy)) {
+            _probe_x += sign(_dx) * obj_ari.interact_nudge_distance;
+        } else {
+            _probe_y += sign(_dy) * obj_ari.interact_nudge_distance;
+        }
+
+        if (__arpg_movement_distance_to_interact(_target, _probe_x, _probe_y)
+            > obj_ari.interact_max_radius)
+        {
+            continue;
+        }
+
+        var _path_data = PATHFINDING.calculate_local_path(
+            obj_ari.x,
+            obj_ari.y,
+            _px,
+            _py,
+            true
+        );
+        if (_path_data != undefined && _path_data.distance < _best_distance) {
+            _best = {
+                x: _px,
+                y: _py,
+                path_data: _path_data,
+            };
+            _best_distance = _path_data.distance;
+        }
+    }
+
+    return _best;
 }
 
 // Presses the vanilla Walk binding for this frame, so the engine itself
@@ -93,10 +321,13 @@ function __arpg_movement_hold_walk_binding() {
 }
 
 // Starts (or retargets) a Pathfind walk toward a position (used by taps).
-// Returns false when no path exists.
-function __arpg_movement_path_to(_x, _y) {
+// A precomputed path lets smart interactions rank several approach points
+// without calculating the winning path twice. Returns false when none exists.
+function __arpg_movement_path_to(_x, _y, _path_data=undefined) {
     var _rt = __arpg_movement_runtime();
-    var _path_data = PATHFINDING.calculate_local_path(obj_ari.x, obj_ari.y, _x, _y, true);
+    if (_path_data == undefined) {
+        _path_data = PATHFINDING.calculate_local_path(obj_ari.x, obj_ari.y, _x, _y, true);
+    }
     if (_path_data == undefined) return false;
 
     // Walk speed or full run speed with the engine's buffs applied.
@@ -135,8 +366,29 @@ function arpg_movement_clock_tick(_ctx) {
     }
 
     var _sid = obj_ari.fsm.current_state_id();
-    if (_sid != PlayerState.Pathfind) {
+    if (_sid != PlayerState.Pathfind && _rt.pathfinding) {
         _rt.pathfinding = false;
+
+        // Pathfind returns to Default on natural completion. Finish a queued
+        // smart interaction only when vanilla still selects the same target.
+        if (_rt.interact_target != undefined) {
+            var _finished_target = _rt.interact_target;
+            __arpg_movement_clear_interact(_rt);
+            if (_sid == PlayerState.Default
+                && !__arpg_movement_try_interact(_finished_target)
+                && _cfg.invalid_click_marker
+                && instance_exists(_finished_target))
+            {
+                var _failed_bounds = __arpg_movement_interact_bounds(_finished_target);
+                if (_failed_bounds != undefined) {
+                    __arpg_movement_show_marker(
+                        _failed_bounds.center_x,
+                        _failed_bounds.center_y,
+                        false
+                    );
+                }
+            }
+        }
     }
     var _in_default = _sid == PlayerState.Default;
     var _in_swim = _sid == PlayerState.Swim;
@@ -249,20 +501,62 @@ function arpg_movement_clock_tick(_ctx) {
                     var _mount_idx = array_index(MOUSE_BUTTONS, mb_right);
                     INPUT.raw_mouse[_mount_idx] = set_flag(INPUT.raw_mouse[_mount_idx], DigitalStatus.Pressed);
                     INPUT.raw_mouse[_mount_idx] = remove_flag(INPUT.raw_mouse[_mount_idx], DigitalStatus.Muted);
-                } else if (point_distance(obj_ari.x, obj_ari.y, _tx, _ty) > _cfg.interact_radius_px) {
-                    // Tap on open ground: pathfind there. Not while swimming —
-                    // the grid doesn't path over water and the Pathfind state
-                    // would walk on it.
-                    _rt.running = !INPUT.check(InputId.Walk);
-                    if (!_in_swim && __arpg_movement_path_to(_tx, _ty) && _cfg.click_marker) {
-                        create_animation_effect(_tx, _ty, -100000, spr_fx_poof1_essence_once);
-                    }
                 } else {
-                    // Tap next to the player: give the press back so the vanilla
-                    // Interact fires this frame.
-                    var _idx2 = array_index(MOUSE_BUTTONS, mb_right);
-                    INPUT.raw_mouse[_idx2] = set_flag(INPUT.raw_mouse[_idx2], DigitalStatus.Pressed);
-                    INPUT.raw_mouse[_idx2] = remove_flag(INPUT.raw_mouse[_idx2], DigitalStatus.Muted);
+                    _rt.running = !INPUT.check(InputId.Walk);
+
+                    // Resolve an explicitly clicked target before applying the
+                    // near-ground radius. This keeps smart interaction useful
+                    // even when interact_radius_px is configured generously.
+                    var _target = undefined;
+                    if (_cfg.click_to_interact && !_in_swim) {
+                        _target = __arpg_movement_interactable_at(_tx, _ty);
+                    }
+
+                    if (_target != undefined) {
+                        // A tall sprite can be clicked while its interaction
+                        // point is already in range. Avoid a pointless path.
+                        if (!__arpg_movement_try_interact(_target)) {
+                            var _plan = __arpg_movement_plan_interact(_target);
+                            if (_plan != undefined) {
+                                _rt.interact_target = _target;
+                                if (__arpg_movement_path_to(
+                                    _plan.x,
+                                    _plan.y,
+                                    _plan.path_data
+                                )) {
+                                    if (_cfg.click_marker) {
+                                        __arpg_movement_show_marker(_tx, _ty, true);
+                                    }
+                                } else {
+                                    __arpg_movement_clear_interact(_rt);
+                                    if (_cfg.invalid_click_marker) {
+                                        __arpg_movement_show_marker(_tx, _ty, false);
+                                    }
+                                }
+                            } else if (_cfg.invalid_click_marker) {
+                                __arpg_movement_show_marker(_tx, _ty, false);
+                            }
+                        }
+                    } else if (point_distance(obj_ari.x, obj_ari.y, _tx, _ty)
+                        > _cfg.interact_radius_px)
+                    {
+                        // Open ground uses the original tap path. Swimming has
+                        // no valid local path and receives failure feedback.
+                        __arpg_movement_clear_interact(_rt);
+                        if (!_in_swim && __arpg_movement_path_to(_tx, _ty)) {
+                            if (_cfg.click_marker) {
+                                __arpg_movement_show_marker(_tx, _ty, true);
+                            }
+                        } else if (_cfg.invalid_click_marker) {
+                            __arpg_movement_show_marker(_tx, _ty, false);
+                        }
+                    } else {
+                        // A nearby ground tap is handed back so the game's
+                        // ordinary facing-based Interact selection runs.
+                        var _idx2 = array_index(MOUSE_BUTTONS, mb_right);
+                        INPUT.raw_mouse[_idx2] = set_flag(INPUT.raw_mouse[_idx2], DigitalStatus.Pressed);
+                        INPUT.raw_mouse[_idx2] = remove_flag(INPUT.raw_mouse[_idx2], DigitalStatus.Muted);
+                    }
                 }
             }
             // A steering hold that ends needs no cleanup: the moment the
