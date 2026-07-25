@@ -25,6 +25,10 @@
 //   watering, tilling, and bug catching. A click the held item already acts on
 //   is always left alone, so deliberate selections survive. Other world clicks
 //   select an inventory weapon only in mines.
+// - Action clicks keep aiming at the cursor while the player walks. Vanilla
+//   gives up on mouse aiming as soon as a moving player stops nudging the
+//   mouse, and silently falls back to the tile the player faces; the mod holds
+//   mouse aiming until the player actually walks away from the cursor.
 // - Clicking with a weapon or a tool turns the player toward the cursor first,
 //   so swings, casts, and tool reach follow the mouse instead of whichever
 //   direction the player last walked in. Facing keeps following the cursor for
@@ -45,6 +49,10 @@
 
 #macro ARPG_MOVEMENT_CONFIG_VERSION 1
 
+// Half a tile. Running is a fraction of this, so anything larger is a warp,
+// a room transition, or a dismount rather than a step the player took.
+#macro ARPG_MOVEMENT_MAX_STEP_PX 8
+
 // The lazy runtime struct. All mod state in one global, created on first use.
 function __arpg_movement_runtime() {
     if (global[$ "__arpg_movement"] == undefined) {
@@ -55,6 +63,10 @@ function __arpg_movement_runtime() {
             running: true,
             pathfinding: false,
             interact_target: undefined,
+            last_x: undefined,
+            last_y: undefined,
+            step_x: 0,
+            step_y: 0,
         };
     }
     return global.__arpg_movement;
@@ -78,6 +90,7 @@ function arpg_movement_config() {
         invalid_click_marker: mmapi_config_bool(_source, "invalid_click_marker", true),
         auto_select_action_item: mmapi_config_bool(_source, "auto_select_action_item", true),
         face_cursor_on_action: mmapi_config_bool(_source, "face_cursor_on_action", true),
+        cursor_targeting_on_action: mmapi_config_bool(_source, "cursor_targeting_on_action", true),
         click_outside_closes_menus: mmapi_config_bool(_source, "click_outside_closes_menus", true),
     };
     mmapi_config_write("arpg_movement", ARPG_MOVEMENT_CONFIG_VERSION, _rt.cfg);
@@ -438,6 +451,71 @@ function __arpg_movement_left_is_action() {
     return false;
 }
 
+// Vanilla decides which tile a click acts on from inside the player's step: it
+// moves the player first (AriFsm's move_ari) and selects the cell afterwards.
+// This mod runs a step earlier, in game.clock_tick, where obj_ari still holds
+// the pose the frame began with. Standing still the two agree exactly; walking,
+// they differ by one frame of movement — enough to shift the 16px tile the
+// candidate cells are anchored to, or to flip the 8px halves that decide how
+// far the selection reaches. Either flip is a whole tile of disagreement, and
+// the reason an action click could refuse to change tools while moving and
+// never while still.
+//
+// The step just taken predicts the step about to be taken: the game applies
+// speed instantly, so a heading only changes when the player changes it. Going
+// through the actual displacement also covers collision sliding, sticky
+// patches, and pathfinding for free.
+function __arpg_movement_track_step(_rt) {
+    if (_rt.last_x == undefined) {
+        _rt.step_x = 0;
+        _rt.step_y = 0;
+    } else {
+        _rt.step_x = obj_ari.x - _rt.last_x;
+        _rt.step_y = obj_ari.y - _rt.last_y;
+
+        if (point_distance(0, 0, _rt.step_x, _rt.step_y) > ARPG_MOVEMENT_MAX_STEP_PX) {
+            _rt.step_x = 0;
+            _rt.step_y = 0;
+        }
+    }
+
+    _rt.last_x = obj_ari.x;
+    _rt.last_y = obj_ari.y;
+}
+
+// Mirrors obj_ari.face_dir(): eight-way facing collapsed onto four cardinals,
+// with both diagonals resolving to east or west.
+function __arpg_movement_cardinal_for_dir(_dir) {
+    switch ((round(_dir / 45) * 45) mod 360) {
+        case 90: return Cardinal.North;
+        case 135:
+        case 180:
+        case 225: return Cardinal.West;
+        case 270: return Cardinal.South;
+    }
+    return Cardinal.East;
+}
+
+// The pose vanilla will select the clicked cell from: this frame's movement
+// applied, and the facing that movement implies. While walking, AriFsm's own
+// face_dir(heading) runs before the selection and overwrites whatever
+// __arpg_movement_face_cursor_for_action() set, so a moving player's selection
+// has to assume the heading rather than the cursor.
+function __arpg_movement_predicted_pose(_rt) {
+    var _cardinal = obj_ari.cardinal;
+    if (_rt.step_x != 0 || _rt.step_y != 0) {
+        _cardinal = __arpg_movement_cardinal_for_dir(
+            point_direction(0, 0, _rt.step_x, _rt.step_y)
+        );
+    }
+
+    return {
+        x: obj_ari.x + _rt.step_x,
+        y: obj_ari.y + _rt.step_y,
+        cardinal: _cardinal,
+    };
+}
+
 // Mirrors the ordinary mouse-target branch of obj_ari.update_cell_select().
 // Tool actions use the returned 2x2 cell, so validating against it guarantees
 // that the same click which changes tools can actually affect the clicked node.
@@ -454,16 +532,16 @@ function __arpg_movement_consider_mouse_cell(_x_offset, _y_offset, _bundle) {
     }
 }
 
-function __arpg_movement_mouse_cell_select() {
-    var _base_x = obj_ari.x % 16;
-    var _base_y = obj_ari.y % 16;
+function __arpg_movement_mouse_cell_select(_pose) {
+    var _base_x = _pose.x % 16;
+    var _base_y = _pose.y % 16;
     var _bundle = {
-        norm_x: 16 * (obj_ari.x div 16),
-        norm_y: 16 * (obj_ari.y div 16),
+        norm_x: 16 * (_pose.x div 16),
+        norm_y: 16 * (_pose.y div 16),
         mouse_x: mouse_x() - 8,
         mouse_y: mouse_y() - 8,
-        best_x: obj_ari.x,
-        best_y: obj_ari.y,
+        best_x: _pose.x,
+        best_y: _pose.y,
         best_score: infinity,
     };
 
@@ -473,7 +551,7 @@ function __arpg_movement_mouse_cell_select() {
         }
     }
 
-    switch (obj_ari.cardinal) {
+    switch (_pose.cardinal) {
         case Cardinal.West:
             if (_base_x < 8) {
                 __arpg_movement_consider_mouse_cell(-2, 0, _bundle);
@@ -654,7 +732,7 @@ function __arpg_movement_find_terrain_tool(_selection) {
 // Selects the item before AriFsm's Default step reads this frame's unchanged
 // left-button press. Recognized tool targets never fall back to a weapon when
 // the required tool is absent, inadequate, or out of range.
-function __arpg_movement_auto_select_action_item() {
+function __arpg_movement_auto_select_action_item(_rt) {
     if (!mouse_check_button_pressed(mb_left)
         || !__arpg_movement_left_is_action()
         || ARI.held_animal_id != undefined)
@@ -666,7 +744,9 @@ function __arpg_movement_auto_select_action_item() {
     // here, early enough to avoid selecting an item behind the toolbar.
     if (ANCHOR.current_hovered_node != undefined) return;
 
-    var _selection = __arpg_movement_mouse_cell_select();
+    var _selection = __arpg_movement_mouse_cell_select(
+        __arpg_movement_predicted_pose(_rt)
+    );
 
     // The held item already does something where the player clicked: seeds on
     // tilled soil, a hoe aimed at their own plot, the tool they just chose by
@@ -720,6 +800,55 @@ function __arpg_movement_auto_select_action_item() {
     // placement, or other current selection.
     if (is_dungeon_room(room())) {
         __arpg_movement_select_item(__arpg_movement_find_item(ItemUse.Attack));
+    }
+}
+
+// Vanilla aims a click at the cursor only while obj_ari.using_mouse is true,
+// and that flag is fragile the moment the player moves. AriFsm's Default step
+// re-arms it only on frames the mouse physically moved, and otherwise drops it
+// as soon as the movement heading differs at all from the one it saved last
+// frame — an exact float compare. Steering rewrites that heading every frame as
+// the player closes on a parked cursor, so the flag falls within a frame or two
+// of setting off and the game quietly switches to its facing-based tile queue:
+// a different tile than the one this mod validated the click against, and the
+// reason a click that should have swapped tools sometimes did nothing.
+//
+// Re-arming the flag alone would not survive — the same step clears it again
+// before update_cell_select() runs. Clearing saved_heading as well sends that
+// step down its other branch, which keeps mouse aiming until the player walks
+// away from the cursor by 135 degrees or more. That is vanilla's own rule for
+// deciding the mouse is no longer what the player aims with, so the fallback
+// to facing-based targeting still happens, just for the right reason.
+function __arpg_movement_keep_mouse_targeting() {
+    // Held, not just pressed, for the same reason as facing: a repeating tool
+    // re-selects its cell on every repeat.
+    if (!mouse_check_button(mb_left)
+        || !__arpg_movement_left_is_action()
+        || ARI.held_animal_id != undefined)
+    {
+        return;
+    }
+
+    if (ANCHOR.current_hovered_node != undefined) return;
+
+    // Furniture, tiles, saplings, and blueprints each aim through their own
+    // branch of update_cell_select(), where this flag picks between cursor
+    // placement and keyboard nudging. Leave the player's nudging alone.
+    var _held = ARI.held_item();
+    if (_held == undefined) return;
+    switch (_held.prototype.use) {
+        case ItemUse.PlaceObject:
+        case ItemUse.PlaceTile:
+        case ItemUse.PlantSapling:
+        case ItemUse.Blueprint:
+            return;
+    }
+
+    obj_ari.using_mouse = true;
+
+    var _state = obj_ari.fsm.current_state();
+    if (_state != undefined) {
+        _state.saved_heading = undefined;
     }
 }
 
@@ -883,6 +1012,10 @@ function arpg_movement_clock_tick(_ctx) {
     var _rt = __arpg_movement_runtime();
     var _cfg = arpg_movement_config();
 
+    // Before any early return: the displacement this reads has to be a single
+    // frame's worth to predict the next one.
+    __arpg_movement_track_step(_rt);
+
     if (!_cfg.enabled) {
         __arpg_movement_reset(_rt);
         return;
@@ -961,8 +1094,13 @@ function arpg_movement_clock_tick(_ctx) {
         if (_cfg.face_cursor_on_action) {
             __arpg_movement_face_cursor_for_action();
         }
+        // Then targeting, so the selection below and the one vanilla makes for
+        // itself later in the frame are reading the same cursor.
+        if (_cfg.cursor_targeting_on_action) {
+            __arpg_movement_keep_mouse_targeting();
+        }
         if (_cfg.auto_select_action_item) {
-            __arpg_movement_auto_select_action_item();
+            __arpg_movement_auto_select_action_item(_rt);
         }
     }
 
