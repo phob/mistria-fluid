@@ -27,7 +27,10 @@
 //   select an inventory weapon only in mines.
 // - Clicking with a weapon or a tool turns the player toward the cursor first,
 //   so swings, casts, and tool reach follow the mouse instead of whichever
-//   direction the player last walked in.
+//   direction the player last walked in. Facing keeps following the cursor for
+//   as long as the action button is held, which aims every swing of a
+//   repeating tool. Walking still wins: a movement key or a steering hold sets
+//   the facing itself, exactly as in vanilla.
 // - Left- or right-clicking outside the topmost normal closable menu closes
 //   it. Dialogue, modal prompts, and menus with custom Back behavior stay out.
 //
@@ -731,7 +734,11 @@ function __arpg_movement_auto_select_action_item() {
 // later in the same frame and overwrites this with the heading — already the
 // cursor direction whenever the mod is steering.
 function __arpg_movement_face_cursor_for_action() {
-    if (!mouse_check_button_pressed(mb_left)
+    // Held, not just pressed. AriFsm's Default step re-fires a repeating tool
+    // on INPUT.check(UseToolRepeated), so each repeat passes back through
+    // Default and picks up the facing set here — sweeping the cursor while the
+    // button is down aims every swing in the burst, not only the first.
+    if (!mouse_check_button(mb_left)
         || !__arpg_movement_left_is_action()
         || ARI.held_animal_id != undefined)
     {
