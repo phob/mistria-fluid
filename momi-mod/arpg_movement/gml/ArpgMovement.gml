@@ -20,7 +20,14 @@
 // - F6 toggles action-item auto-selection. When enabled and left mouse is
 //   bound to a vanilla tool-use action, a nearby clicked rock, tree/stump, or
 //   dig site selects its usable inventory tool before vanilla consumes that
-//   same click. Other world clicks select an inventory weapon only in mines.
+//   same click. Failing that, the watering can, hoe, or net is selected when
+//   the game itself says that tool would act on the clicked tile, which covers
+//   watering, tilling, and bug catching. A click the held item already acts on
+//   is always left alone, so deliberate selections survive. Other world clicks
+//   select an inventory weapon only in mines.
+// - Clicking with a weapon or a tool turns the player toward the cursor first,
+//   so swings, casts, and tool reach follow the mouse instead of whichever
+//   direction the player last walked in.
 // - Left- or right-clicking outside the topmost normal closable menu closes
 //   it. Dialogue, modal prompts, and menus with custom Back behavior stay out.
 //
@@ -67,6 +74,7 @@ function arpg_movement_config() {
         click_marker: mmapi_config_bool(_source, "click_marker", true),
         invalid_click_marker: mmapi_config_bool(_source, "invalid_click_marker", true),
         auto_select_action_item: mmapi_config_bool(_source, "auto_select_action_item", true),
+        face_cursor_on_action: mmapi_config_bool(_source, "face_cursor_on_action", true),
         click_outside_closes_menus: mmapi_config_bool(_source, "click_outside_closes_menus", true),
     };
     mmapi_config_write("arpg_movement", ARPG_MOVEMENT_CONFIG_VERSION, _rt.cfg);
@@ -556,8 +564,7 @@ function __arpg_movement_select_item(_index) {
     return true;
 }
 
-function __arpg_movement_tool_reaches_node(_node, _item) {
-    var _selection = __arpg_movement_mouse_cell_select();
+function __arpg_movement_tool_reaches_node(_node, _item, _selection) {
     for (var _xx = 0; _xx < 2; _xx++) {
         for (var _yy = 0; _yy < 2; _yy++) {
             var _cell_x = _selection.x + _xx;
@@ -574,6 +581,73 @@ function __arpg_movement_tool_reaches_node(_node, _item) {
     return false;
 }
 
+// Asks the game whether an item would act on the selected tiles at all. This
+// mirrors the validity test at the end of obj_ari.update_cell_select(): the net
+// acts only on the selected cell, every other item on any cell of its 2x2.
+// The tool_type read stays behind the use check because only tools carry one.
+function __arpg_movement_item_affects_cells(_item, _selection) {
+    var _prototype = _item.prototype;
+
+    if (_prototype.use == ItemUse.UseTool && _prototype.tool_type == ToolType.Net) {
+        return GRID.item_effects_node_at_cell(_selection.x, _selection.y, _prototype);
+    }
+
+    for (var _xx = 0; _xx < 2; _xx++) {
+        for (var _yy = 0; _yy < 2; _yy++) {
+            if (GRID.item_effects_node_at_cell(
+                _selection.x + _xx,
+                _selection.y + _yy,
+                _prototype
+            )) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+// The hoe toggles dirt into soil and soil back into dirt, so can_hoe_node() is
+// equally true on a plot that is already tilled. Offer it only where there is
+// untilled dirt to break, never where the same click would undo a finished bed.
+function __arpg_movement_hoe_tills_cells(_item, _selection) {
+    for (var _xx = 0; _xx < 2; _xx++) {
+        for (var _yy = 0; _yy < 2; _yy++) {
+            var _cell_x = _selection.x + _xx;
+            var _cell_y = _selection.y + _yy;
+            var _ni = GRID.try_node_index_for_cell(_cell_x, _cell_y);
+            if (_ni != undefined
+                && GRID.node_terrain_ground_kind[_ni] == GroundKind.Dirt
+                && GRID.item_effects_node_at_cell(_cell_x, _cell_y, _item.prototype))
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+// Terrain work has no clicked node to identify it — dry soil and bare dirt are
+// ground, not objects — so the game's own item/cell predicate decides instead.
+// Ordered by how much a wrong guess would cost: watering changes nothing that
+// the next day would not, tilling reshapes a plot, the net is last because its
+// single-cell test is the easiest to satisfy by accident.
+function __arpg_movement_find_terrain_tool(_selection) {
+    var _probe_tools = [ToolType.WateringCan, ToolType.Hoe, ToolType.Net];
+
+    for (var _i = 0; _i < array_length(_probe_tools); _i++) {
+        var _tool_type = _probe_tools[_i];
+        var _index = __arpg_movement_find_item(ItemUse.UseTool, _tool_type);
+        if (_index == undefined) continue;
+
+        var _item = ARI.inventory.slot(_index).item;
+        var _usable = _tool_type == ToolType.Hoe
+            ? __arpg_movement_hoe_tills_cells(_item, _selection)
+            : __arpg_movement_item_affects_cells(_item, _selection);
+        if (_usable) return _index;
+    }
+    return undefined;
+}
+
 // Selects the item before AriFsm's Default step reads this frame's unchanged
 // left-button press. Recognized tool targets never fall back to a weapon when
 // the required tool is absent, inadequate, or out of range.
@@ -588,6 +662,16 @@ function __arpg_movement_auto_select_action_item() {
     // Anchor consumes HUD clicks later in the frame. Its hover remains live
     // here, early enough to avoid selecting an item behind the toolbar.
     if (ANCHOR.current_hovered_node != undefined) return;
+
+    var _selection = __arpg_movement_mouse_cell_select();
+
+    // The held item already does something where the player clicked: seeds on
+    // tilled soil, a hoe aimed at their own plot, the tool they just chose by
+    // hand. A deliberate selection outranks every guess made below.
+    var _held = ARI.held_item();
+    if (_held != undefined && __arpg_movement_item_affects_cells(_held, _selection)) {
+        return;
+    }
 
     var _node = __arpg_movement_clicked_node();
     if (_node != undefined) {
@@ -615,10 +699,18 @@ function __arpg_movement_auto_select_action_item() {
             if (_tool_index == undefined) return;
 
             var _tool = ARI.inventory.slot(_tool_index).item;
-            if (!__arpg_movement_tool_reaches_node(_node, _tool)) return;
+            if (!__arpg_movement_tool_reaches_node(_node, _tool, _selection)) return;
             __arpg_movement_select_item(_tool_index);
             return;
         }
+    }
+
+    // No node, or one no tool works on (crops, grass, bushes): the tile itself
+    // may still be waterable, tillable, or hold a bug.
+    var _terrain_index = __arpg_movement_find_terrain_tool(_selection);
+    if (_terrain_index != undefined) {
+        __arpg_movement_select_item(_terrain_index);
+        return;
     }
 
     // Outside the mines, ambiguous clicks preserve the user's farming,
@@ -626,6 +718,44 @@ function __arpg_movement_auto_select_action_item() {
     if (is_dungeon_room(room())) {
         __arpg_movement_select_item(__arpg_movement_find_item(ItemUse.Attack));
     }
+}
+
+// Turns the player toward the cursor on the frame an action click lands. The
+// attack and tool states cache the player's cardinal when they start, so
+// facing settled here decides where the swing goes. It also widens the tile
+// the game hands the tool: update_cell_select() reaches an extra cell in the
+// direction the player faces.
+//
+// Standing still, vanilla never revisits facing, which is what makes clicks go
+// out the player's back. While moving, the Default step's own face_dir() runs
+// later in the same frame and overwrites this with the heading — already the
+// cursor direction whenever the mod is steering.
+function __arpg_movement_face_cursor_for_action() {
+    if (!mouse_check_button_pressed(mb_left)
+        || !__arpg_movement_left_is_action()
+        || ARI.held_animal_id != undefined)
+    {
+        return;
+    }
+
+    // Same reason as auto-selection: Anchor consumes HUD clicks later.
+    if (ANCHOR.current_hovered_node != undefined) return;
+
+    // Furniture, blueprints, and tiles preview through the cardinal, so
+    // turning the player would rotate whatever they are about to place.
+    var _held = ARI.held_item();
+    if (_held == undefined) return;
+    if (_held.prototype.use != ItemUse.Attack
+        && _held.prototype.use != ItemUse.UseTool)
+    {
+        return;
+    }
+
+    var _mx = mouse_x();
+    var _my = mouse_y();
+    if (point_distance(obj_ari.x, obj_ari.y, _mx, _my) < 1) return;
+
+    obj_ari.face_dir(point_direction(obj_ari.x, obj_ari.y, _mx, _my));
 }
 
 // Presses the vanilla Walk binding for this frame, so the engine itself
@@ -817,8 +947,16 @@ function arpg_movement_clock_tick(_ctx) {
         INPUT.raw_mouse[_idx] = set_flag(INPUT.raw_mouse[_idx], DigitalStatus.Muted);
     }
 
-    if (_in_default && _cfg.auto_select_action_item) {
-        __arpg_movement_auto_select_action_item();
+    if (_in_default) {
+        // Facing first: which tile the game hands the tool depends on the
+        // player's cardinal, so the selection below has to see the new facing
+        // for the same reason vanilla's update_cell_select() will.
+        if (_cfg.face_cursor_on_action) {
+            __arpg_movement_face_cursor_for_action();
+        }
+        if (_cfg.auto_select_action_item) {
+            __arpg_movement_auto_select_action_item();
+        }
     }
 
     // No mouse gesture or mod-owned path is active. Avoid resolving input
