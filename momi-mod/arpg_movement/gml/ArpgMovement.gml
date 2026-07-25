@@ -14,7 +14,10 @@
 //   tap-to-interact still works.
 // - The raw right-button press is muted the moment it lands, so Interact
 //   (and anything else bound to right mouse) never fires during a hold.
-// - WASD, jump, tool use, E, or Esc cancel a mouse-driven walk instantly.
+// - Any keyboard movement or discrete player command (actions, menus, toolbar,
+//   placement controls) cancels a mouse-driven walk before vanilla reads that
+//   same frame. Walk remains a speed modifier; the muted right-click gesture
+//   retains ownership so it can retarget or hand over to steering.
 // - Steering also works while swimming and mounted. Taps don't pathfind in
 //   either case; mounted taps are handed back to vanilla Interact.
 // - F6 toggles action-item auto-selection. When enabled and left mouse is
@@ -35,8 +38,9 @@
 //   as long as the action button is held, which aims every swing of a
 //   repeating tool. Walking still wins: a movement key or a steering hold sets
 //   the facing itself, exactly as in vanilla.
-// - Left- or right-clicking outside the topmost normal closable menu closes
-//   it. Dialogue, modal prompts, and menus with custom Back behavior stay out.
+// - Left- or right-clicking outside the topmost normal pause menu requests its
+//   own Back behavior, preserving nested screens and items held by menu cursors.
+//   Dialogue, cutscene UI, and modal prompts stay out.
 //
 // Steering works by feeding the cursor direction into the input system as a
 // virtual analog stick (`INPUT.gp_left_stick`), which the player's normal
@@ -63,6 +67,13 @@ function __arpg_movement_runtime() {
             running: true,
             pathfinding: false,
             interact_target: undefined,
+            interact_target_x: undefined,
+            interact_target_y: undefined,
+            interact_end_x: undefined,
+            interact_end_y: undefined,
+            interact_repath_frames: 0,
+            player_id: undefined,
+            location_id: undefined,
             last_x: undefined,
             last_y: undefined,
             step_x: 0,
@@ -93,6 +104,11 @@ function arpg_movement_config() {
         cursor_targeting_on_action: mmapi_config_bool(_source, "cursor_targeting_on_action", true),
         click_outside_closes_menus: mmapi_config_bool(_source, "click_outside_closes_menus", true),
     };
+    // Keep the three distance bands coherent even if a user hand-edits the
+    // JSON. The nearest band stops, the middle band walks, and only the
+    // farthest band runs.
+    _rt.cfg.walk_within_px = max(_rt.cfg.walk_within_px, _rt.cfg.stop_within_px);
+    _rt.cfg.run_beyond_px = max(_rt.cfg.run_beyond_px, _rt.cfg.walk_within_px);
     mmapi_config_write("arpg_movement", ARPG_MOVEMENT_CONFIG_VERSION, _rt.cfg);
     return _rt.cfg;
 }
@@ -103,6 +119,31 @@ function __arpg_movement_reset(_rt) {
 
 function __arpg_movement_clear_interact(_rt) {
     _rt.interact_target = undefined;
+    _rt.interact_target_x = undefined;
+    _rt.interact_target_y = undefined;
+    _rt.interact_end_x = undefined;
+    _rt.interact_end_y = undefined;
+    _rt.interact_repath_frames = 0;
+}
+
+// Room changes, reloads, and save swaps can all replace Ari without destroying
+// this global. Never carry a path, a gesture, or a displacement sample across
+// that boundary.
+function __arpg_movement_sync_context(_rt) {
+    if (_rt.player_id == obj_ari.id && _rt.location_id == CURRENT_LOCATION_ID) {
+        return;
+    }
+
+    _rt.player_id = obj_ari.id;
+    _rt.location_id = CURRENT_LOCATION_ID;
+    _rt.pathfinding = false;
+    _rt.running = true;
+    _rt.last_x = undefined;
+    _rt.last_y = undefined;
+    _rt.step_x = 0;
+    _rt.step_y = 0;
+    __arpg_movement_reset(_rt);
+    __arpg_movement_clear_interact(_rt);
 }
 
 // Ends a mouse-driven Pathfind walk and hands control back to the player.
@@ -121,17 +162,91 @@ function __arpg_movement_show_marker(_x, _y, _valid) {
     }
 }
 
-// True when the pointer is over any visible part owned by this menu. The
-// menu's root canvas covers the whole UI area, so only its descendants count.
-// BackgroundMenu hangs from ANCHOR.screen_canvas and has no source_menu.
+// Item tooltips are Popup menus that hover over the menu that owns them.
+// They sit on top of it in ANCHOR.open_menus and never take Back input, so
+// they must not count as a blocking modal, and their panel counts as part of
+// the menu underneath. Stores spawn one the moment they open, which is why
+// tooltip-bearing menus have to be handled here at all.
+function __arpg_movement_is_tooltip_menu(_menu) {
+    return _menu != undefined
+        && _menu.type == Menu.Popup
+        && _menu[$ "is_tooltip"] == true;
+}
+
+// Finds the top-level screen node a detached menu component belongs to.
+function __arpg_movement_screen_root(_node) {
+    var _root = _node;
+    while (_root != undefined
+        && _root.parent != undefined
+        && _root.parent != ANCHOR.screen_canvas)
+    {
+        _root = _root.parent;
+    }
+    return _root;
+}
+
+// A few menus keep panels directly under screen_canvas instead of under their
+// main canvas. Those panels have no source_menu, but the menu stores the root
+// node in one of its fields.
+function __arpg_movement_menu_owns_root(_menu, _root) {
+    if (_root == undefined || _root == ANCHOR.screen_canvas) return false;
+
+    var _fields = struct_get_names(_menu);
+    for (var _i = 0; _i < array_length(_fields); _i++) {
+        if (_menu[$ _fields[_i]] == _root) return true;
+    }
+    return false;
+}
+
+// Anchor updates current_hovered_node after this hook. Probe the current mouse
+// position against the live node registry so a fast click cannot leak through
+// a HUD control whose hover still describes the previous frame.
+function __arpg_movement_point_over_actionable_ui() {
+    for (var _i = ANCHOR.node_count - 1; _i >= 0; _i--) {
+        var _node = ANCHOR.node_registrar[| _i];
+        if (_node == undefined
+            || _node.freed
+            || _node.marked_for_death
+            || !_node.run_logic
+            || !_node.safe_enabled
+            || !_node.safe_unlocked
+            || _node.cache_alpha <= 0
+            || (!_node.listens_for_hovers && !_node.listens_for_taps))
+        {
+            continue;
+        }
+
+        if (ANCHOR.point_in_node(_node, MOUSE_GUI_X, MOUSE_GUI_Y)
+            && (!_node.canvas.render_partial_info.enabled
+                || ANCHOR.point_in_node(_node.canvas, MOUSE_GUI_X, MOUSE_GUI_Y)))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// True when the pointer is over any visible part owned by this menu or by a
+// tooltip floating above it. A menu's root canvas covers the whole UI area,
+// so only its descendants count. BackgroundMenu hangs from
+// ANCHOR.screen_canvas and has no source_menu.
 function __arpg_movement_point_inside_menu(_menu) {
     for (var _i = 0; _i < ANCHOR.node_count; _i++) {
         var _node = ANCHOR.node_registrar[| _i];
-        if (_node == undefined
-            || _node == _menu.canvas
-            || _node.freed
+        if (_node == undefined || _node.freed) {
+            continue;
+        }
+
+        var _owner = _node.source_menu;
+        var _owned = _owner == _menu
+            || __arpg_movement_is_tooltip_menu(_owner)
+            || __arpg_movement_menu_owns_root(
+                _menu,
+                __arpg_movement_screen_root(_node)
+            );
+        if (!_owned
+            || (_owner != undefined && _node == _owner.canvas)
             || !_node.safe_enabled
-            || _node.source_menu != _menu
             || _node.cache_alpha <= 0)
         {
             continue;
@@ -140,6 +255,95 @@ function __arpg_movement_point_inside_menu(_menu) {
         if (ANCHOR.point_in_node(_node, MOUSE_GUI_X, MOUSE_GUI_Y)) {
             return true;
         }
+    }
+    return false;
+}
+
+function __arpg_movement_mute_mouse_press(_button) {
+    var _idx = array_index(MOUSE_BUTTONS, _button);
+    if (_idx >= 0) {
+        INPUT.raw_mouse[_idx] = set_flag(
+            INPUT.raw_mouse[_idx],
+            DigitalStatus.Muted
+        );
+    }
+}
+
+// Injects a logical press through every configured binary binding. This lets a
+// custom menu execute its own layered Back behavior in Anchor's normal step.
+function __arpg_movement_inject_input_press(_input_id) {
+    var _bindings = BINDINGS.bindings[_input_id];
+    var _injected = false;
+    for (var _i = 0; _i < array_length(_bindings); _i++) {
+        var _binding = _bindings[_i];
+        if (_binding == undefined) continue;
+
+        var _index = -1;
+        switch (_binding.type) {
+            case BindingType.Keyboard:
+                _index = array_index(KEYBOARD_INPUTS, _binding.keycode);
+                if (_index >= 0) {
+                    INPUT.raw_keyboard[_index] = set_flag(
+                        INPUT.raw_keyboard[_index],
+                        DigitalStatus.Pressed
+                    );
+                    INPUT.raw_keyboard[_index] = remove_flag(
+                        INPUT.raw_keyboard[_index],
+                        DigitalStatus.Muted
+                    );
+                    _injected = true;
+                }
+                break;
+            case BindingType.Mouse:
+                _index = array_index(MOUSE_BUTTONS, _binding.keycode);
+                if (_index >= 0) {
+                    INPUT.raw_mouse[_index] = set_flag(
+                        INPUT.raw_mouse[_index],
+                        DigitalStatus.Pressed
+                    );
+                    INPUT.raw_mouse[_index] = remove_flag(
+                        INPUT.raw_mouse[_index],
+                        DigitalStatus.Muted
+                    );
+                    _injected = true;
+                }
+                break;
+            case BindingType.GamepadButton:
+                _index = array_index(GAMEPAD_BUTTONS, _binding.keycode);
+                if (_index >= 0) {
+                    INPUT.raw_gp_buttons[_index] = set_flag(
+                        INPUT.raw_gp_buttons[_index],
+                        DigitalStatus.Pressed
+                    );
+                    INPUT.raw_gp_buttons[_index] = remove_flag(
+                        INPUT.raw_gp_buttons[_index],
+                        DigitalStatus.Muted
+                    );
+                    _injected = true;
+                }
+                break;
+        }
+    }
+    return _injected;
+}
+
+// Menus in this list deliberately consume Back themselves instead of enabling
+// AnchorMenu's generic close listener. They are ordinary pause menus with
+// internal pages, so an outside click should request Back, not bypass them.
+function __arpg_movement_menu_has_safe_custom_back(_type) {
+    switch (_type) {
+        case Menu.Almanac:
+        case Menu.Adoption:
+        case Menu.FarmBuildingSelection:
+        case Menu.Customization:
+        case Menu.Crafting:
+        case Menu.Inbox:
+        case Menu.Museum:
+        case Menu.QuestLog:
+        case Menu.Spellcasting:
+        case Menu.Settings:
+        case Menu.DragonShrine:
+            return true;
     }
     return false;
 }
@@ -160,15 +364,19 @@ function __arpg_movement_try_close_menu_from_outside() {
 
     for (var _i = ANCHOR.open_menus.count() - 1; _i >= 0; _i--) {
         var _menu = ANCHOR.open_menus.get(_i);
-        if (_menu.data.pause == PauseStatus.EMPTY) {
+        if (_menu.data.pause == PauseStatus.EMPTY
+            || __arpg_movement_is_tooltip_menu(_menu))
+        {
             continue;
         }
 
-        // This is the topmost modal. Custom-exit menus (dialogue, prompts,
-        // cutscene UI) deliberately stop here. DragonShrine is the Skills
-        // screen and is the one safe custom-exit exception.
+        // This is the topmost modal. Cutscene UI and custom prompt menus stop
+        // here. Ordinary pause menus with a custom Back handler receive a
+        // synthetic Back press so their own internal navigation remains intact.
+        var _custom_back = _menu.data.pause == PauseStatus.MENU
+            && __arpg_movement_menu_has_safe_custom_back(_menu.type);
         var _allows_outside_close = _menu.listen_for_exit_flag
-            || _menu.type == Menu.DragonShrine;
+            || _custom_back;
         if (_menu.close_requested
             || !_allows_outside_close
             || _menu.canvas == undefined
@@ -178,42 +386,20 @@ function __arpg_movement_try_close_menu_from_outside() {
             return false;
         }
 
-        if (_menu.type == Menu.DragonShrine
-            && _menu.state == DragonShrineState.TierScreen)
-        {
-            // Match the Skills screen's own Back action: return from a
-            // category's tiers to the category list. Passing the menu
-            // explicitly keeps the delayed transition callback independent
-            // of whatever `self` is active when the chain reaches it.
-            var _category = _menu.scroller.canvas.board_get("cat_key");
-            _menu.transition(
-                DragonShrineState.CategoryScreen,
-                function(_skills_menu, _category_key) {
-                    _skills_menu.create_category_nodes(_category_key);
-                    _skills_menu.scroller.free();
-                },
-                [_menu, _category],
-            );
+        if (_custom_back) {
+            if (!__arpg_movement_inject_input_press(InputId.MenuBack)) {
+                return false;
+            }
         } else {
-            // Category screen (and the Horse Shrine's single layer) mirrors
-            // its own Back action by closing.
             _menu.close();
         }
 
         // Do not let the dismissing click reach UI or gameplay underneath.
         if (_left_pressed) {
-            var _left_idx = array_index(MOUSE_BUTTONS, mb_left);
-            INPUT.raw_mouse[_left_idx] = set_flag(
-                INPUT.raw_mouse[_left_idx],
-                DigitalStatus.Muted
-            );
+            __arpg_movement_mute_mouse_press(mb_left);
         }
         if (_right_pressed) {
-            var _right_idx = array_index(MOUSE_BUTTONS, mb_right);
-            INPUT.raw_mouse[_right_idx] = set_flag(
-                INPUT.raw_mouse[_right_idx],
-                DigitalStatus.Muted
-            );
+            __arpg_movement_mute_mouse_press(mb_right);
         }
         return true;
     }
@@ -292,20 +478,34 @@ function __arpg_movement_distance_to_interact(_target, _x, _y) {
     return sqrt(_dx * _dx + _dy * _dy);
 }
 
+// Vanilla's has_potential_interactions() accidentally tests whether each
+// callback exists instead of calling it. Smart targeting must use the real
+// eligibility result or it can chase disabled doors, sleeping NPCs, and stale
+// contextual actions.
+function __arpg_movement_target_is_actionable(_target) {
+    if (_target == undefined || !instance_exists(_target)) return false;
+
+    for (var _i = 0; _i < _target.interactions.count(); _i++) {
+        var _interaction = _target.interactions.get(_i);
+        if (_interaction != undefined
+            && _interaction.can_interact_callback() != false)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Finds the closest live interactable whose interaction shape or visible
 // collision bounds contain the click.
 function __arpg_movement_interactable_at(_x, _y) {
     var _best = undefined;
+    var _best_kind = infinity;
     var _best_distance = infinity;
 
     for (var _i = 0; _i < INTERACTABLES.count(); _i++) {
         var _candidate = INTERACTABLES.get(_i);
-        if (_candidate == undefined
-            || !instance_exists(_candidate)
-            || !_candidate.has_potential_interactions())
-        {
-            continue;
-        }
+        if (!__arpg_movement_target_is_actionable(_candidate)) continue;
 
         var _bounds = __arpg_movement_interact_bounds(_candidate);
         if (_bounds == undefined) continue;
@@ -315,9 +515,12 @@ function __arpg_movement_interactable_at(_x, _y) {
             && _y >= _bounds.top - 2
             && _y <= _bounds.bottom + 2;
 
-        // Circle-mode objects include NPCs. Their interaction circle is at
-        // their feet, so also accept clicks on their visible collision bounds.
-        if (!_hit && _candidate.interactable_mode == InteractableMode.Circle) {
+        var _hit_kind = _hit ? 0 : 1;
+
+        // Interaction geometry may live at an object's feet or be much smaller
+        // than its visible sprite. Accept its collision bounds as a fallback
+        // for every mode, while ranking a true interaction-shape hit first.
+        if (!_hit) {
             _hit = _x >= _candidate.bbox_left - 2
                 && _x <= _candidate.bbox_right + 2
                 && _y >= _candidate.bbox_top - 2
@@ -326,8 +529,11 @@ function __arpg_movement_interactable_at(_x, _y) {
 
         if (_hit) {
             var _distance = point_distance(_x, _y, _bounds.center_x, _bounds.center_y);
-            if (_distance < _best_distance) {
+            if (_hit_kind < _best_kind
+                || (_hit_kind == _best_kind && _distance < _best_distance))
+            {
                 _best = _candidate;
+                _best_kind = _hit_kind;
                 _best_distance = _distance;
             }
         }
@@ -340,7 +546,7 @@ function __arpg_movement_interactable_at(_x, _y) {
 // This prevents a path from activating a neighboring object after the clicked
 // target moved or disappeared.
 function __arpg_movement_try_interact(_target) {
-    if (_target == undefined || !instance_exists(_target)) return false;
+    if (!__arpg_movement_target_is_actionable(_target)) return false;
 
     var _bounds = __arpg_movement_interact_bounds(_target);
     if (_bounds == undefined) return false;
@@ -367,61 +573,66 @@ function __arpg_movement_plan_interact(_target) {
     var _bounds = __arpg_movement_interact_bounds(_target);
     if (_bounds == undefined) return undefined;
 
-    var _left_cell = floor(_bounds.left / 8) - 1;
-    var _right_cell = floor(_bounds.right / 8) + 1;
-    var _top_cell = floor(_bounds.top / 8) - 1;
-    var _bottom_cell = floor(_bounds.bottom / 8) + 1;
+    var _reach_cells = ceil(
+        (obj_ari.interact_max_radius + obj_ari.interact_nudge_distance) / 8
+    ) + 1;
+    var _left_cell = floor(_bounds.left / 8) - _reach_cells;
+    var _right_cell = floor(_bounds.right / 8) + _reach_cells;
+    var _top_cell = floor(_bounds.top / 8) - _reach_cells;
+    var _bottom_cell = floor(_bounds.bottom / 8) + _reach_cells;
     var _candidates = [];
 
-    for (var _gy = _top_cell + 1; _gy < _bottom_cell; _gy++) {
-        array_push(_candidates, [_left_cell * 8 + 4, _gy * 8 + 4]);
-        array_push(_candidates, [_right_cell * 8 + 4, _gy * 8 + 4]);
-    }
-    for (var _gx = _left_cell + 1; _gx < _right_cell; _gx++) {
-        array_push(_candidates, [_gx * 8 + 4, _top_cell * 8 + 4]);
-        array_push(_candidates, [_gx * 8 + 4, _bottom_cell * 8 + 4]);
+    for (var _gx = _left_cell; _gx <= _right_cell; _gx++) {
+        for (var _gy = _top_cell; _gy <= _bottom_cell; _gy++) {
+            var _px = _gx * 8 + 4;
+            var _py = _gy * 8 + 4;
+            var _dx = _bounds.center_x - _px;
+            var _dy = _bounds.center_y - _py;
+            var _probe_x = _px;
+            var _probe_y = _py;
+
+            if (abs(_dx) > abs(_dy)) {
+                _probe_x += sign(_dx) * obj_ari.interact_nudge_distance;
+            } else {
+                _probe_y += sign(_dy) * obj_ari.interact_nudge_distance;
+            }
+
+            if (__arpg_movement_distance_to_interact(_target, _probe_x, _probe_y)
+                <= obj_ari.interact_max_radius
+                && GRID.try_node_index_for_room_position(_px, _py) != undefined)
+            {
+                array_push(_candidates, {
+                    x: _px,
+                    y: _py,
+                    straight: point_distance(obj_ari.x, obj_ari.y, _px, _py),
+                });
+            }
+        }
     }
 
-    // Corners are useful when furniture is tight against a wall.
-    array_push(_candidates, [_left_cell * 8 + 4, _top_cell * 8 + 4]);
-    array_push(_candidates, [_right_cell * 8 + 4, _top_cell * 8 + 4]);
-    array_push(_candidates, [_left_cell * 8 + 4, _bottom_cell * 8 + 4]);
-    array_push(_candidates, [_right_cell * 8 + 4, _bottom_cell * 8 + 4]);
+    // Evaluate promising cells first. Once straight-line distance cannot beat
+    // the best path, no later candidate can either.
+    array_sort(_candidates, function(_a, _b) {
+        return _a.straight - _b.straight;
+    });
 
     var _best = undefined;
     var _best_distance = infinity;
     for (var _j = 0; _j < array_length(_candidates); _j++) {
         var _pos = _candidates[_j];
-        var _px = _pos[0];
-        var _py = _pos[1];
-        var _dx = _bounds.center_x - _px;
-        var _dy = _bounds.center_y - _py;
-        var _probe_x = _px;
-        var _probe_y = _py;
-
-        if (abs(_dx) > abs(_dy)) {
-            _probe_x += sign(_dx) * obj_ari.interact_nudge_distance;
-        } else {
-            _probe_y += sign(_dy) * obj_ari.interact_nudge_distance;
-        }
-
-        if (__arpg_movement_distance_to_interact(_target, _probe_x, _probe_y)
-            > obj_ari.interact_max_radius)
-        {
-            continue;
-        }
+        if (_pos.straight >= _best_distance) break;
 
         var _path_data = PATHFINDING.calculate_local_path(
             obj_ari.x,
             obj_ari.y,
-            _px,
-            _py,
+            _pos.x,
+            _pos.y,
             true
         );
         if (_path_data != undefined && _path_data.distance < _best_distance) {
             _best = {
-                x: _px,
-                y: _py,
+                x: _pos.x,
+                y: _pos.y,
                 path_data: _path_data,
             };
             _best_distance = _path_data.distance;
@@ -501,17 +712,53 @@ function __arpg_movement_cardinal_for_dir(_dir) {
 // face_dir(heading) runs before the selection and overwrites whatever
 // __arpg_movement_face_cursor_for_action() set, so a moving player's selection
 // has to assume the heading rather than the cursor.
-function __arpg_movement_predicted_pose(_rt) {
+function __arpg_movement_predicted_pose(_rt, _cfg) {
+    var _intent_x = INPUT.check_value(InputId.Right) - INPUT.check_value(InputId.Left);
+    var _intent_y = INPUT.check_value(InputId.Down) - INPUT.check_value(InputId.Up);
+
+    // Once a right hold has crossed the steering threshold, the injected stick
+    // later in this heartbeat is the movement intent vanilla will actually use.
+    if (mouse_check_button(mb_right)
+        && _rt.hold_frames + 1 > _cfg.steer_start_seconds * FPS)
+    {
+        var _mouse_dist = point_distance(obj_ari.x, obj_ari.y, mouse_x(), mouse_y());
+        if (_mouse_dist > _cfg.stop_within_px) {
+            _intent_x = (mouse_x() - obj_ari.x) / _mouse_dist;
+            _intent_y = (mouse_y() - obj_ari.y) / _mouse_dist;
+        } else {
+            _intent_x = 0;
+            _intent_y = 0;
+        }
+    }
+
+    var _step_x = _rt.step_x;
+    var _step_y = _rt.step_y;
     var _cardinal = obj_ari.cardinal;
-    if (_rt.step_x != 0 || _rt.step_y != 0) {
-        _cardinal = __arpg_movement_cardinal_for_dir(
-            point_direction(0, 0, _rt.step_x, _rt.step_y)
-        );
+    if (_intent_x == 0 && _intent_y == 0) {
+        // A released key stops Ari immediately; repeating the last displacement
+        // here would predict a movement the upcoming Default step will not make.
+        _step_x = 0;
+        _step_y = 0;
+    } else {
+        var _intent_dir = point_direction(0, 0, _intent_x, _intent_y);
+        _cardinal = __arpg_movement_cardinal_for_dir(_intent_dir);
+
+        if ((_step_x == 0 && _step_y == 0)
+            || abs(angle_difference(
+                point_direction(0, 0, _step_x, _step_y),
+                _intent_dir
+            )) > 22.5)
+        {
+            // A changed heading or a blocked previous frame is not enough
+            // evidence to predict collision sliding in the new direction.
+            _step_x = 0;
+            _step_y = 0;
+        }
     }
 
     return {
-        x: obj_ari.x + _rt.step_x,
-        y: obj_ari.y + _rt.step_y,
+        x: obj_ari.x + _step_x,
+        y: obj_ari.y + _step_y,
         cardinal: _cardinal,
     };
 }
@@ -729,6 +976,54 @@ function __arpg_movement_find_terrain_tool(_selection) {
     return undefined;
 }
 
+// Exact clicked-cell probe used before the broader vanilla 2x2 selection.
+// This prevents a neighboring dry/tillable cell from outranking the terrain
+// directly under the pointer in a mixed selection.
+function __arpg_movement_find_exact_terrain_tool(_cell_x, _cell_y, _selection) {
+    if (_cell_x < _selection.x
+        || _cell_x > _selection.x + 1
+        || _cell_y < _selection.y
+        || _cell_y > _selection.y + 1)
+    {
+        return undefined;
+    }
+
+    var _probe_tools = [ToolType.WateringCan, ToolType.Hoe, ToolType.Net];
+    var _ni = GRID.try_node_index_for_cell(_cell_x, _cell_y);
+    if (_ni == undefined) return undefined;
+
+    for (var _i = 0; _i < array_length(_probe_tools); _i++) {
+        var _tool_type = _probe_tools[_i];
+        var _index = __arpg_movement_find_item(ItemUse.UseTool, _tool_type);
+        if (_index == undefined) continue;
+
+        var _item = ARI.inventory.slot(_index).item;
+        if (_tool_type == ToolType.Hoe
+            && GRID.node_terrain_ground_kind[_ni] != GroundKind.Dirt)
+        {
+            continue;
+        }
+        if (GRID.item_effects_node_at_cell(_cell_x, _cell_y, _item.prototype)) {
+            return _index;
+        }
+    }
+    return undefined;
+}
+
+function __arpg_movement_is_deliberate_placement(_use) {
+    switch (_use) {
+        case ItemUse.PlaceObject:
+        case ItemUse.PlaceTile:
+        case ItemUse.PlantSeed:
+        case ItemUse.PlantSapling:
+        case ItemUse.PlantGrass:
+        case ItemUse.Blueprint:
+        case ItemUse.Bait:
+            return true;
+    }
+    return false;
+}
+
 // Selects the item before AriFsm's Default step reads this frame's unchanged
 // left-button press. Recognized tool targets never fall back to a weapon when
 // the required tool is absent, inadequate, or out of range.
@@ -740,21 +1035,18 @@ function __arpg_movement_auto_select_action_item(_rt) {
         return;
     }
 
-    // Anchor consumes HUD clicks later in the frame. Its hover remains live
-    // here, early enough to avoid selecting an item behind the toolbar.
-    if (ANCHOR.current_hovered_node != undefined) return;
+    if (__arpg_movement_point_over_actionable_ui()) return;
 
-    var _selection = __arpg_movement_mouse_cell_select(
-        __arpg_movement_predicted_pose(_rt)
-    );
-
-    // The held item already does something where the player clicked: seeds on
-    // tilled soil, a hoe aimed at their own plot, the tool they just chose by
-    // hand. A deliberate selection outranks every guess made below.
     var _held = ARI.held_item();
-    if (_held != undefined && __arpg_movement_item_affects_cells(_held, _selection)) {
+    if (_held != undefined
+        && __arpg_movement_is_deliberate_placement(_held.prototype.use))
+    {
         return;
     }
+
+    var _selection = __arpg_movement_mouse_cell_select(
+        __arpg_movement_predicted_pose(_rt, arpg_movement_config())
+    );
 
     var _node = __arpg_movement_clicked_node();
     if (_node != undefined) {
@@ -788,9 +1080,22 @@ function __arpg_movement_auto_select_action_item(_rt) {
         }
     }
 
+    // The clicked object had no explicit required tool. Preserve a hand-picked
+    // item that the game says can act on the selected cells.
+    if (_held != undefined && __arpg_movement_item_affects_cells(_held, _selection)) {
+        return;
+    }
+
     // No node, or one no tool works on (crops, grass, bushes): the tile itself
     // may still be waterable, tillable, or hold a bug.
-    var _terrain_index = __arpg_movement_find_terrain_tool(_selection);
+    var _terrain_index = __arpg_movement_find_exact_terrain_tool(
+        mouse_x() div 8,
+        mouse_y() div 8,
+        _selection
+    );
+    if (_terrain_index == undefined) {
+        _terrain_index = __arpg_movement_find_terrain_tool(_selection);
+    }
     if (_terrain_index != undefined) {
         __arpg_movement_select_item(_terrain_index);
         return;
@@ -829,7 +1134,7 @@ function __arpg_movement_keep_mouse_targeting() {
         return;
     }
 
-    if (ANCHOR.current_hovered_node != undefined) return;
+    if (__arpg_movement_point_over_actionable_ui()) return;
 
     // Furniture, tiles, saplings, and blueprints each aim through their own
     // branch of update_cell_select(), where this flag picks between cursor
@@ -875,7 +1180,7 @@ function __arpg_movement_face_cursor_for_action() {
     }
 
     // Same reason as auto-selection: Anchor consumes HUD clicks later.
-    if (ANCHOR.current_hovered_node != undefined) return;
+    if (__arpg_movement_point_over_actionable_ui()) return;
 
     // Furniture, blueprints, and tiles preview through the cardinal, so
     // turning the player would rotate whatever they are about to place.
@@ -892,6 +1197,113 @@ function __arpg_movement_face_cursor_for_action() {
     if (point_distance(obj_ari.x, obj_ari.y, _mx, _my) < 1) return;
 
     obj_ari.face_dir(point_direction(obj_ari.x, obj_ari.y, _mx, _my));
+}
+
+// The item-use guard runs after Default has moved and re-faced Ari but before
+// use_item() creates the action state. Reapply cursor facing at that exact seam
+// so the first weapon/tool action caches the cursor direction even while the
+// player is moving with the keyboard.
+function arpg_movement_items_use_guard(_item) {
+    if (!instance_exists(obj_ari) || game_paused() || ON_GAMEPAD) {
+        return undefined;
+    }
+
+    var _cfg = arpg_movement_config();
+    if (!_cfg.enabled
+        || !_cfg.face_cursor_on_action
+        || obj_ari.fsm.current_state_id() != PlayerState.Default
+        || _item == undefined
+        || (_item.prototype.use != ItemUse.Attack
+            && _item.prototype.use != ItemUse.UseTool))
+    {
+        return undefined;
+    }
+
+    __arpg_movement_face_cursor_for_action();
+    return undefined;
+}
+
+// Sword combos stay in one state, so later swings do not pass through the item
+// guard. Keep the state's cached cardinal, hitbox direction, and forward push
+// aligned with the cursor while the action button remains held.
+function __arpg_movement_aim_sword_combo() {
+    if (!mouse_check_button(mb_left)
+        || !__arpg_movement_left_is_action()
+        || __arpg_movement_point_over_actionable_ui())
+    {
+        return;
+    }
+
+    var _mx = mouse_x();
+    var _my = mouse_y();
+    if (point_distance(obj_ari.x, obj_ari.y, _mx, _my) < 1) return;
+
+    var _dir = point_direction(obj_ari.x, obj_ari.y, _mx, _my);
+    var _state = obj_ari.fsm.current_state();
+    if (_state == undefined) return;
+
+    obj_ari.face_dir(_dir);
+    _state.cached_cardinal = obj_ari.cardinal;
+    _state.dir = cardinal_to_angle(_state.cached_cardinal);
+    _state.push_spd.set_zero();
+    switch (_state.cached_cardinal) {
+        case Cardinal.East:  _state.push_spd.x = _state.max_push_spd; break;
+        case Cardinal.North: _state.push_spd.y = -_state.max_push_spd; break;
+        case Cardinal.West:  _state.push_spd.x = -_state.max_push_spd; break;
+        case Cardinal.South: _state.push_spd.y = _state.max_push_spd; break;
+    }
+}
+
+// Any discrete player command that needs direct control of Ari cancels the
+// mod-owned Pathfind state before vanilla processes the same input. Walk is the
+// sole exception: it is a speed modifier, not an action or destination change.
+function __arpg_movement_path_cancel_requested() {
+    var _inputs = [
+        InputId.LeftMouse,
+        InputId.Jump,
+        InputId.Interact,
+        InputId.SecondaryInteract,
+        InputId.PickUpOne,
+        InputId.OpenJournal,
+        InputId.MenuBack,
+        InputId.UseToolCharged,
+        InputId.UseToolRepeated,
+        InputId.CastPinnedSpell,
+        InputId.Throw,
+        InputId.Ride,
+        InputId.OpenMapMenu,
+        InputId.MenuTabRight,
+        InputId.MenuTabLeft,
+        InputId.NextPreset,
+        InputId.LastPreset,
+        InputId.ToolbarIncUp,
+        InputId.ToolbarIncDown,
+        InputId.RotateRight,
+        InputId.RotateLeft,
+        InputId.FurnitureUp,
+        InputId.FurnitureDown,
+        InputId.FurnitureLeft,
+        InputId.FurnitureRight,
+        InputId.NextToolbarTab,
+        InputId.LastToolbarTab,
+        InputId.SelectToolbarOne,
+        InputId.SelectToolbarTwo,
+        InputId.SelectToolbarThree,
+        InputId.SelectToolbarFour,
+        InputId.SelectToolbarFive,
+        InputId.SelectToolbarSix,
+        InputId.SelectToolbarSeven,
+        InputId.SelectToolbarEight,
+        InputId.SelectToolbarNine,
+        InputId.SelectToolbarZero,
+        InputId.ConfirmTextInput,
+        InputId.ResetControls,
+    ];
+
+    for (var _i = 0; _i < array_length(_inputs); _i++) {
+        if (INPUT.pressed(_inputs[_i])) return true;
+    }
+    return false;
 }
 
 // Presses the vanilla Walk binding for this frame, so the engine itself
@@ -985,6 +1397,101 @@ function __arpg_movement_path_to(_x, _y, _path_data=undefined) {
     return true;
 }
 
+function __arpg_movement_remember_interact_plan(_rt, _target, _plan) {
+    var _bounds = __arpg_movement_interact_bounds(_target);
+    if (_bounds == undefined) return;
+
+    _rt.interact_target = _target;
+    _rt.interact_target_x = _bounds.center_x;
+    _rt.interact_target_y = _bounds.center_y;
+    _rt.interact_end_x = _plan.x;
+    _rt.interact_end_y = _plan.y;
+    _rt.interact_repath_frames = 0;
+}
+
+function __arpg_movement_fail_interact_walk(_rt, _cfg, _x, _y) {
+    if (obj_ari.fsm.current_state_id() == PlayerState.Pathfind && _rt.pathfinding) {
+        __arpg_movement_stop_walk(_rt);
+    } else {
+        _rt.pathfinding = false;
+        __arpg_movement_clear_interact(_rt);
+    }
+    if (_cfg.invalid_click_marker && _x != undefined && _y != undefined) {
+        __arpg_movement_show_marker(_x, _y, false);
+    }
+}
+
+// Follow a moving interaction target without the rapid two-point retarget loop
+// that made ordinary steering jitter. Replan at most five times per second and
+// only after the target moved a grid cell or invalidated the chosen endpoint.
+function __arpg_movement_update_interact_path(_rt, _cfg) {
+    var _target = _rt.interact_target;
+    if (_target == undefined) return false;
+
+    if (!__arpg_movement_target_is_actionable(_target)) {
+        __arpg_movement_fail_interact_walk(
+            _rt,
+            _cfg,
+            _rt.interact_target_x,
+            _rt.interact_target_y
+        );
+        return true;
+    }
+
+    var _bounds = __arpg_movement_interact_bounds(_target);
+    if (_bounds == undefined) {
+        __arpg_movement_fail_interact_walk(
+            _rt,
+            _cfg,
+            _rt.interact_target_x,
+            _rt.interact_target_y
+        );
+        return true;
+    }
+
+    _rt.interact_repath_frames += 1;
+    var _moved = point_distance(
+        _rt.interact_target_x,
+        _rt.interact_target_y,
+        _bounds.center_x,
+        _bounds.center_y
+    ) >= 8;
+    var _endpoint_invalid = __arpg_movement_distance_to_interact(
+        _target,
+        _rt.interact_end_x,
+        _rt.interact_end_y
+    ) > obj_ari.interact_max_radius;
+
+    if ((!_moved && !_endpoint_invalid)
+        || _rt.interact_repath_frames < max(1, 0.2 * FPS))
+    {
+        return false;
+    }
+
+    var _plan = __arpg_movement_plan_interact(_target);
+    if (_plan == undefined) {
+        __arpg_movement_fail_interact_walk(
+            _rt,
+            _cfg,
+            _bounds.center_x,
+            _bounds.center_y
+        );
+        return true;
+    }
+
+    __arpg_movement_remember_interact_plan(_rt, _target, _plan);
+    if (!__arpg_movement_path_to(_plan.x, _plan.y, _plan.path_data)) {
+        __arpg_movement_fail_interact_walk(
+            _rt,
+            _cfg,
+            _bounds.center_x,
+            _bounds.center_y
+        );
+        return true;
+    }
+    return false;
+}
+
 // F6 is registered through MMAPI so conflicts with other mods are diagnosed
 // in one place instead of competing through independent raw-key polling.
 function arpg_movement_toggle_auto_select() {
@@ -1012,11 +1519,21 @@ function arpg_movement_clock_tick(_ctx) {
     var _rt = __arpg_movement_runtime();
     var _cfg = arpg_movement_config();
 
+    __arpg_movement_sync_context(_rt);
+
     // Before any early return: the displacement this reads has to be a single
     // frame's worth to predict the next one.
     __arpg_movement_track_step(_rt);
 
     if (!_cfg.enabled) {
+        if (obj_ari.fsm.current_state_id() == PlayerState.Pathfind
+            && _rt.pathfinding)
+        {
+            __arpg_movement_stop_walk(_rt);
+        } else {
+            _rt.pathfinding = false;
+            __arpg_movement_clear_interact(_rt);
+        }
         __arpg_movement_reset(_rt);
         return;
     }
@@ -1029,37 +1546,93 @@ function arpg_movement_clock_tick(_ctx) {
     }
 
     if (game_paused()) {
+        if (obj_ari.fsm.current_state_id() == PlayerState.Pathfind
+            && _rt.pathfinding)
+        {
+            __arpg_movement_stop_walk(_rt);
+        }
         __arpg_movement_reset(_rt);
         return;
     }
 
     if (ON_GAMEPAD) {
+        if (obj_ari.fsm.current_state_id() == PlayerState.Pathfind
+            && _rt.pathfinding)
+        {
+            __arpg_movement_stop_walk(_rt);
+        }
         __arpg_movement_reset(_rt);
         return;
     }
 
     var _sid = obj_ari.fsm.current_state_id();
+    if (_sid == PlayerState.Sword && _cfg.face_cursor_on_action) {
+        __arpg_movement_aim_sword_combo();
+    }
+
     if (_sid != PlayerState.Pathfind && _rt.pathfinding) {
         _rt.pathfinding = false;
 
         // Pathfind returns to Default on natural completion. Finish a queued
         // smart interaction only when vanilla still selects the same target.
+        // If a moving target left the selected endpoint, immediately calculate
+        // the next approach instead of treating a successful walk as failure.
         if (_rt.interact_target != undefined) {
             var _finished_target = _rt.interact_target;
-            __arpg_movement_clear_interact(_rt);
             if (_sid == PlayerState.Default
-                && !__arpg_movement_try_interact(_finished_target)
-                && _cfg.invalid_click_marker
-                && instance_exists(_finished_target))
+                && __arpg_movement_try_interact(_finished_target))
             {
-                var _failed_bounds = __arpg_movement_interact_bounds(_finished_target);
-                if (_failed_bounds != undefined) {
-                    __arpg_movement_show_marker(
-                        _failed_bounds.center_x,
-                        _failed_bounds.center_y,
-                        false
+                __arpg_movement_clear_interact(_rt);
+            } else if (_sid == PlayerState.Default
+                && __arpg_movement_target_is_actionable(_finished_target))
+            {
+                var _retry_bounds = __arpg_movement_interact_bounds(_finished_target);
+                var _target_moved = _retry_bounds != undefined
+                    && point_distance(
+                        _rt.interact_target_x,
+                        _rt.interact_target_y,
+                        _retry_bounds.center_x,
+                        _retry_bounds.center_y
+                    ) >= 8;
+                var _endpoint_invalid = _retry_bounds != undefined
+                    && __arpg_movement_distance_to_interact(
+                        _finished_target,
+                        _rt.interact_end_x,
+                        _rt.interact_end_y
+                    ) > obj_ari.interact_max_radius;
+
+                if (_target_moved || _endpoint_invalid) {
+                    var _retry_plan = __arpg_movement_plan_interact(_finished_target);
+                    if (_retry_plan != undefined) {
+                        __arpg_movement_remember_interact_plan(
+                            _rt,
+                            _finished_target,
+                            _retry_plan
+                        );
+                        if (__arpg_movement_path_to(
+                            _retry_plan.x,
+                            _retry_plan.y,
+                            _retry_plan.path_data
+                        )) {
+                            return;
+                        }
+                    }
+                }
+                if (_retry_bounds != undefined) {
+                    __arpg_movement_fail_interact_walk(
+                        _rt,
+                        _cfg,
+                        _retry_bounds.center_x,
+                        _retry_bounds.center_y
                     );
                 }
+            } else {
+                __arpg_movement_fail_interact_walk(
+                    _rt,
+                    _cfg,
+                    _rt.interact_target_x,
+                    _rt.interact_target_y
+                );
             }
         }
     }
@@ -1067,6 +1640,14 @@ function arpg_movement_clock_tick(_ctx) {
     var _in_swim = _sid == PlayerState.Swim;
     var _in_mount = _sid == PlayerState.MountDefault;
     var _in_our_path = _sid == PlayerState.Pathfind && _rt.pathfinding;
+
+    if (_in_our_path
+        && _rt.interact_target != undefined
+        && __arpg_movement_update_interact_path(_rt, _cfg))
+    {
+        __arpg_movement_reset(_rt);
+        return;
+    }
 
     // Tools, cutscenes, other mods' pathfinds: stay out.
     if (!_in_default && !_in_swim && !_in_mount && !_in_our_path) {
@@ -1083,8 +1664,7 @@ function arpg_movement_clock_tick(_ctx) {
     // the release could retarget it. Other Interact bindings (such as E)
     // remain unmuted and still cancel mouse movement normally.
     if (_right_pressed) {
-        var _idx = array_index(MOUSE_BUTTONS, mb_right);
-        INPUT.raw_mouse[_idx] = set_flag(INPUT.raw_mouse[_idx], DigitalStatus.Muted);
+        __arpg_movement_mute_mouse_press(mb_right);
     }
 
     if (_in_default) {
@@ -1123,12 +1703,9 @@ function arpg_movement_clock_tick(_ctx) {
         return;
     }
 
-    // Jump, tool, E, or Esc cancel a mouse-driven walk.
-    if (_in_our_path
-        && (INPUT.pressed(InputId.Jump)
-            || INPUT.pressed(InputId.UseToolCharged)
-            || INPUT.pressed(InputId.Interact)
-            || INPUT.pressed(InputId.MenuBack)))
+    // Every discrete action, menu command, and toolbar change hands control
+    // back to vanilla in the same frame.
+    if (_in_our_path && __arpg_movement_path_cancel_requested())
     {
         __arpg_movement_stop_walk(_rt);
         __arpg_movement_reset(_rt);
@@ -1214,7 +1791,11 @@ function arpg_movement_clock_tick(_ctx) {
                         if (!__arpg_movement_try_interact(_target)) {
                             var _plan = __arpg_movement_plan_interact(_target);
                             if (_plan != undefined) {
-                                _rt.interact_target = _target;
+                                __arpg_movement_remember_interact_plan(
+                                    _rt,
+                                    _target,
+                                    _plan
+                                );
                                 if (__arpg_movement_path_to(
                                     _plan.x,
                                     _plan.y,
@@ -1269,6 +1850,7 @@ function arpg_movement_register_callbacks() {
     _rt.registered_hooks = true;
 
     mmapi_on("game.clock_tick", arpg_movement_clock_tick);
+    mmapi_guard("items.use_guard", arpg_movement_items_use_guard);
 
     var _f6 = mmapi_hotkey_vk_from_name("F6");
     if (_f6 != undefined) {
