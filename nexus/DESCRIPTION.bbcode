@@ -16,10 +16,12 @@ The MOMI build currently on Nexus (0.13.x) cannot install this mod. Download [ur
 [size=5][b]YOUR NEW MOVEMENT KIT[/b][/size]
 
 [list]
-[*][b]AUTO TOOL SWAPPING[/b] — Click a rock, tree, stump, or dig spot and the right tool is equipped before your character acts.[/*]
+[*][b]AUTO TOOL SWAPPING[/b] — Click a rock, tree, stump, dig spot, dry crop, tillable patch, or bug and the right tool is equipped before your character acts.[/*]
+[*][b]CURSOR AIMING[/b] — Swings, casts, and tool reach follow your cursor, swing after swing, even while you are walking.[/*]
 [*][b]SMART INTERACTIONS[/b] — Click a distant NPC, chest, door, or usable object to walk into range and interact.[/*]
 [*][b]MOUSE-DRIVEN MOVEMENT[/b] — Hold right mouse to steer; tap right mouse to path to a destination.[/*]
 [*][b]MOUNTED & SWIMMING CONTROLS[/b] — Keep steering while riding or swimming.[/*]
+[*][b]CLICK-AWAY MENUS[/b] — Left- or right-click outside a normal menu to close it; dialogue and confirmation prompts stay protected.[/*]
 [*][b]CLEAR CLICK FEEDBACK[/b] — A normal poof confirms a valid destination; a red poof means it cannot be reached.[/*]
 [/list]
 
@@ -46,12 +48,21 @@ Enabled by default and built around your usual left-click tool action:
 [*]Click a [b]rock[/b] to equip a pickaxe.[/*]
 [*]Click a [b]tree or stump[/b] to equip an axe.[/*]
 [*]Click a [b]dig spot[/b] to equip a shovel.[/*]
+[*]Click a [b]thirsty crop[/b] to equip the watering can, a [b]tillable patch[/b] to equip the hoe, or a [b]bug[/b] to equip the net — whenever the game itself says that tool would act there.[/*]
 [*]In the [b]mines[/b], other action clicks equip a weapon when one is available.[/*]
 [/list]
 
-The mod searches your whole inventory and changes toolbar pages when needed. It will not equip a tool that is too weak, missing, or out of reach.
+The mod searches your whole inventory and changes toolbar pages when needed. It will not equip a tool that is too weak, missing, or out of reach. Anything the item already in your hand can do where you clicked is left alone, so seeds, placements, and the tool you deliberately picked are never swapped away.
 
 Press [b]F6[/b] to toggle Auto Tool Swapping. Your choice is remembered.
+
+[center][img]https://raw.githubusercontent.com/phob/mistria-fluid/main/nexus/assets/floral-vine-separator.png[/img][/center]
+
+[size=5][b]CURSOR AIMING[/b][/size]
+
+Clicking with a weapon or tool turns your character toward the cursor before the action starts, so swings, casts, and tool reach go where you are pointing instead of wherever you last walked. Hold the button down and every repeat swing re-aims at the cursor.
+
+Action clicks also keep aiming at the cursor while you walk, instead of snapping to your direction of travel. Movement still wins when you want it to: a movement key or a steering hold sets your facing exactly as it does in vanilla.
 
 [center][img]https://raw.githubusercontent.com/phob/mistria-fluid/main/nexus/assets/floral-vine-separator.png[/img][/center]
 
@@ -76,6 +87,9 @@ After first launch, settings are created in [b]%LOCALAPPDATA%\FieldsOfMistria\mo
 [*][b]click_to_interact[/b] — Toggle automatic approach and interaction.[/*]
 [*][b]click_marker[/b] and [b]invalid_click_marker[/b] — Toggle destination feedback.[/*]
 [*][b]auto_select_action_item[/b] — Toggle Auto Tool Swapping.[/*]
+[*][b]face_cursor_on_action[/b] — Toggle turning toward the cursor when you act.[/*]
+[*][b]cursor_targeting_on_action[/b] — Toggle cursor aiming for action clicks made while walking.[/*]
+[*][b]click_outside_closes_menus[/b] — Toggle closing menus by clicking outside them.[/*]
 [/list]
 
 [size=5][b]COMPATIBILITY[/b][/size]

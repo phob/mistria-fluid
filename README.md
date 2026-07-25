@@ -1,4 +1,4 @@
-# ARPG Movement 2.0.1 (for Fields of Mistria)
+# ARPG Movement 2.1.0 (for Fields of Mistria)
 
 Mouse movement and automatic tool swapping for action-RPG-style play:
 
@@ -13,8 +13,16 @@ Mouse movement and automatic tool swapping for action-RPG-style play:
   swimming without replacing their normal actions.
 - **Auto Tool Swapping** — left-click a nearby rock, tree, stump, or dig spot
   and the correct usable tool is selected from anywhere in the inventory
-  before the action happens. General action clicks in the mines select a
-  weapon. Press **F6** to toggle this feature; the choice is remembered.
+  before the action happens. Tiles the game says are waterable, tillable, or
+  hold a bug select the watering can, hoe, or net. A click the held item
+  already acts on is left alone, so deliberate selections survive. General
+  action clicks in the mines select a weapon. Press **F6** to toggle this
+  feature; the choice is remembered.
+- **Click where the cursor points** — clicking with a weapon or tool turns the
+  player toward the cursor first, and keeps aiming every swing of a repeating
+  tool while the button is held. Action clicks stay aimed at the cursor while
+  walking instead of snapping to the direction of travel. Movement keys and
+  steering still set the facing themselves, as in vanilla.
 - **Click outside menus to close them** — left- or right-click outside a
   normal menu to dismiss it. In the Skills screen, an outside click goes back
   one layer first, then closes from the category screen. Dialogue and
@@ -44,6 +52,6 @@ cd "/d/SteamLibrary/steamapps/common/Fields of Mistria" && \
 
 ## Publishing
 
-- `dist/ARPGMovement-2.0.1.zip` — Nexus-ready package.
+- `dist/ARPGMovement-2.1.0.zip` — Nexus-ready package.
 - `nexus/DESCRIPTION.bbcode` — mod page description (BBCode).
 - `nexus/UPLOAD_CHECKLIST.md` — upload steps.
