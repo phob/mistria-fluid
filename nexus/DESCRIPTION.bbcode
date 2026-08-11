@@ -8,8 +8,8 @@ Move with intention, interact from a distance, and let the right tool snap into 
 [center][img]https://raw.githubusercontent.com/phob/mistria-fluid/main/nexus/assets/floral-bouquet-separator.png[/img][/center]
 
 [size=4][b][color=#f6b24a]FIELDS OF MISTRIA 1.0 READY[/color][/b][/size]
-[b]ARPG Movement 2.2.0 is ready for Fields of Mistria 1.0.[/b]
-[b]Requires MOMI 0.15.0 or newer.[/b] Download it from the [url=https://www.nexusmods.com/fieldsofmistria/mods/78]official Mods of Mistria Installer page[/url], then install this mod normally.
+[b]ARPG Movement 2.2.1 is ready for Fields of Mistria 1.0.[/b]
+[b]Requires MOMI 0.15.2 or newer.[/b] Download it from the [url=https://www.nexusmods.com/fieldsofmistria/mods/78]official Mods of Mistria Installer page[/url], then install this mod normally.
 
 [center][img]https://raw.githubusercontent.com/phob/mistria-fluid/main/nexus/assets/floral-vine-separator.png[/img][/center]
 
@@ -55,7 +55,7 @@ Enabled by default and built around your usual left-click tool action:
 
 The mod searches your whole inventory and changes toolbar pages when needed. It will not equip a tool that is too weak, missing, or out of reach. Anything the item already in your hand can do where you clicked is left alone, so seeds, placements, and the tool you deliberately picked are never swapped away.
 
-Press [b]F6[/b] to toggle Auto Tool Swapping. Your choice is remembered.
+Press [b]F6[/b] to toggle Auto Tool Swapping. Your choice is remembered, and the key can be changed with the [b]auto_select_hotkey[/b] setting.
 
 [center][img]https://raw.githubusercontent.com/phob/mistria-fluid/main/nexus/assets/floral-vine-separator.png[/img][/center]
 
@@ -72,7 +72,7 @@ Action clicks also keep aiming at the cursor while you walk, instead of snapping
 [size=5][b]INSTALLATION[/b][/size]
 
 [list]
-[*]Install [url=https://www.nexusmods.com/fieldsofmistria/mods/78][b]MOMI 0.15.0 or newer[/b][/url].[/*]
+[*]Install [url=https://www.nexusmods.com/fieldsofmistria/mods/78][b]MOMI 0.15.2 or newer[/b][/url].[/*]
 [*]Close Fields of Mistria.[/*]
 [*]Open the game's installation folder. The default Steam location on Windows is [b]C:\Program Files (x86)\Steam\steamapps\common\Fields of Mistria[/b].[/*]
 [*]If you installed Steam or the game somewhere else, open your Steam Library, right-click [b]Fields of Mistria[/b], and choose [b]Manage → Browse local files[/b].[/*]
@@ -90,16 +90,22 @@ After first launch, settings are created in [b]%LOCALAPPDATA%\FieldsOfMistria\mo
 
 [list]
 [*][b]enabled[/b] — Enable or disable the mod without uninstalling it.[/*]
+[*][b]hold_to_steer[/b] — Toggle steering with a held right mouse button.[/*]
+[*][b]tap_to_pathfind[/b] — Toggle walking to a tapped destination.[/*]
+[*][b]mouse_move_mounted_only[/b] — Limit mouse movement to horseback. On foot, right mouse then behaves exactly like vanilla.[/*]
 [*][b]tap_seconds[/b] and [b]steer_start_seconds[/b] — Adjust tap and steering timing.[/*]
-[*][b]walk_within_px[/b] and [b]run_beyond_px[/b] — Tune the walk/run distances.[/*]
+[*][b]walk_within_px[/b], [b]run_beyond_px[/b], and [b]stop_within_px[/b] — Tune the stop/walk/run distance bands around the cursor.[/*]
 [*][b]click_to_interact[/b] — Toggle automatic approach and interaction.[/*]
+[*][b]interact_radius_px[/b] — How close a tapped object must be to trigger a direct interaction instead of walking there first.[/*]
 [*][b]click_marker[/b] and [b]invalid_click_marker[/b] — Toggle destination feedback.[/*]
 [*][b]auto_select_action_item[/b] — Toggle Auto Tool Swapping.[/*]
+[*][b]auto_select_hotkey[/b] — The key that toggles Auto Tool Swapping in game. Default [b]"F6"[/b]; combinations like [b]"SHIFT+F6"[/b] and gamepad buttons like [b]"GAMEPAD_Y"[/b] also work. All valid key names are listed in the [url=https://github.com/Garethp/Mods-of-Mistria-Installer/blob/main/docs/MMAPI/API_REFERENCE.md#hotkey]MMAPI hotkey documentation[/url]; a name it does not recognize falls back to F6.[/*]
 [*][b]face_cursor_on_action[/b] — Toggle turning toward the cursor when you act.[/*]
 [*][b]cursor_targeting_on_action[/b] — Toggle cursor aiming for action clicks made while walking.[/*]
 [*][b]click_outside_closes_menus[/b] — Toggle closing menus by clicking outside them.[/*]
 [*][b]sword_enemy_range_px[/b] — How close a monster must be for a mine click to draw your weapon (clicks directly at a monster always do).[/*]
+[*][b]dev_logging[/b] — Write a diagnostic log of every click decision to [b]mod_data\arpg_movement\logs[/b]. Leave off unless you are reporting a bug.[/*]
 [/list]
 
 [size=5][b]COMPATIBILITY[/b][/size]
-[b]Version 2.2.0 is ready for Fields of Mistria 1.0.[/b] Gamepad play, cutscenes, scripted movement, and rebound controls are respected. If Interact is moved away from right mouse, right mouse becomes a dedicated movement button.
+[b]Version 2.2.1 is ready for Fields of Mistria 1.0.[/b] Gamepad play, cutscenes, scripted movement, and rebound controls are respected. If Interact is moved away from right mouse, right mouse becomes a dedicated movement button.

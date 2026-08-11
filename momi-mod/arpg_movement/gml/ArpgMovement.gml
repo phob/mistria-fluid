@@ -23,14 +23,32 @@
 //   retains ownership so it can retarget or hand over to steering.
 // - Steering also works while swimming and mounted. Taps don't pathfind in
 //   either case; mounted taps are handed back to vanilla Interact.
-// - F6 toggles action-item auto-selection. When enabled and left mouse is
-//   bound to a vanilla tool-use action, a nearby clicked rock, tree/stump, or
+// - Mouse movement can be narrowed in the config: `hold_to_steer` and
+//   `tap_to_pathfind` disable the hold and tap gestures independently, and
+//   `mouse_move_mounted_only` keeps right mouse fully vanilla except while
+//   mounted. When no enabled feature can claim the button in the current
+//   state, the physical press is never muted, so Interact fires exactly as
+//   in the unmodded game.
+// - A hotkey (config `auto_select_hotkey`, default F6, chords like
+//   "SHIFT+F6" allowed) toggles action-item auto-selection. When enabled and left mouse is
+//   bound to a vanilla tool-use action, a clicked rock, tree/stump, or
 //   dig site selects its usable inventory tool before vanilla consumes that
-//   same click, and a clicked breakable (mine barrels, crates, and debris,
+//   same click — even when the node is out of swing range, where the armed
+//   tool whiffs exactly as vanilla would (a tree's choppable cells are only
+//   its 2x2 trunk, so this happens point-blank on big trunks and logs) —
+//   and a clicked breakable (mine barrels, crates, and debris,
 //   farm branches and leaf piles) arms an inventory weapon the same way. Failing that, the watering can, hoe, or net is selected when
 //   the game itself says that tool would act on the clicked tile, which covers
-//   watering, tilling, and bug catching. A click the held item already acts on
-//   is always left alone, so deliberate selections survive. In the mines,
+//   watering, tilling, and bug catching. The net is auto-selected only when a
+//   real bug sits on the tile: the game's own net test also counts a
+//   Rockclod's flying rocks and bombs (a deliberate net swing can catch
+//   them), and that trick must not hijack a combat click. A click the held item already acts on
+//   is always left alone, so deliberate selections survive. Under the game's
+//   continuous-action option (left mouse bound to UseToolRepeated), a held
+//   button re-runs node selection between repeats, so sweeping from a tree
+//   onto a stone swaps the axe for the pickaxe mid-hold; terrain tools and
+//   the mine weapon draw still change only on a fresh click, and a held
+//   weapon in the mines is never traded away. In the mines,
 //   combat outranks tools: while a live monster is close to the player
 //   (`sword_enemy_range_px`) or under the cursor, any world click arms an
 //   inventory weapon — even a click on a rock. With no monster near, mine
@@ -69,6 +87,7 @@ function __arpg_movement_runtime() {
     if (global[$ "__arpg_movement"] == undefined) {
         global.__arpg_movement = {
             registered_hooks: undefined,
+            hotkey_installed: false,
             cfg: undefined,
             hold_frames: 0,
             running: true,
@@ -79,6 +98,7 @@ function __arpg_movement_runtime() {
             interact_end_x: undefined,
             interact_end_y: undefined,
             interact_repath_frames: 0,
+            click_scan_list: undefined,
             player_id: undefined,
             location_id: undefined,
             last_x: undefined,
@@ -91,6 +111,24 @@ function __arpg_movement_runtime() {
     return global.__arpg_movement;
 }
 
+// A hotkey name (single key or a "+"-chord), validated through MMAPI's
+// binding parser so a typo falls back to the default instead of silently
+// leaving the toggle unbound.
+function __arpg_movement_config_hotkey(_source, _key, _default) {
+    var _name = mmapi_config_get(_source, _key, _default);
+    // The binding probe stays in its own local. With the call inlined into the
+    // short-circuited `if` condition, this engine's VM returned undefined from
+    // this function even on the `return _name` path (observed live: the config
+    // materialized null instead of "F6"). Also note a JSON null on disk reads
+    // back as a non-string value that is not == undefined, so is_string is the
+    // check that actually catches it.
+    var _binding = mmapi_hotkey_binding_from_name(_name);
+    if (!is_string(_name) || _binding == undefined) {
+        return _default;
+    }
+    return _name;
+}
+
 // Lazy, versioned config. Call only after boot, when file IO is ready.
 function arpg_movement_config() {
     var _rt = __arpg_movement_runtime();
@@ -98,6 +136,12 @@ function arpg_movement_config() {
     var _source = mmapi_config_read_valid("arpg_movement", ARPG_MOVEMENT_CONFIG_VERSION);
     _rt.cfg = {
         enabled: mmapi_config_bool(_source, "enabled", true),
+        // The two right-mouse gestures, individually. `mouse_move_mounted_only`
+        // restricts both to riding; on foot the button is then never muted and
+        // Interact stays exactly vanilla.
+        hold_to_steer: mmapi_config_bool(_source, "hold_to_steer", true),
+        tap_to_pathfind: mmapi_config_bool(_source, "tap_to_pathfind", true),
+        mouse_move_mounted_only: mmapi_config_bool(_source, "mouse_move_mounted_only", false),
         tap_seconds: mmapi_config_number(_source, "tap_seconds", 0.6, 0.05, 2.0),
         steer_start_seconds: mmapi_config_number(_source, "steer_start_seconds", 0.1, 0.0, 1.0),
         walk_within_px: mmapi_config_number(_source, "walk_within_px", 16, 0, 320),
@@ -108,6 +152,8 @@ function arpg_movement_config() {
         click_marker: mmapi_config_bool(_source, "click_marker", true),
         invalid_click_marker: mmapi_config_bool(_source, "invalid_click_marker", true),
         auto_select_action_item: mmapi_config_bool(_source, "auto_select_action_item", true),
+        auto_select_hotkey: __arpg_movement_config_hotkey(_source, "auto_select_hotkey", "F6"),
+        dev_logging: mmapi_config_bool(_source, "dev_logging", false),
         face_cursor_on_action: mmapi_config_bool(_source, "face_cursor_on_action", true),
         cursor_targeting_on_action: mmapi_config_bool(_source, "cursor_targeting_on_action", true),
         click_outside_closes_menus: mmapi_config_bool(_source, "click_outside_closes_menus", true),
@@ -123,6 +169,34 @@ function arpg_movement_config() {
     _rt.cfg.run_beyond_px = max(_rt.cfg.run_beyond_px, _rt.cfg.walk_within_px);
     mmapi_config_write("arpg_movement", ARPG_MOVEMENT_CONFIG_VERSION, _rt.cfg);
     return _rt.cfg;
+}
+
+// Dev-only decision tracing, opt-in via `dev_logging` in the config. Lines
+// land in %LOCALAPPDATA%\FieldsOfMistria\mod_data\arpg_movement\logs\
+// arpg_movement.log. The flag ships default-off, so release builds carry the
+// call sites but stay silent — nothing to strip before a release, and a user
+// chasing a bug can flip the flag and send the log in. Every line is flushed
+// immediately so tailing the file during a play session stays live.
+//
+// Call sites on discrete events (clicks, taps, toggles) may build their
+// message unconditionally; anything on a per-frame path must check
+// __arpg_movement_dev_logging() before assembling strings.
+function __arpg_movement_dev_logging() {
+    var _rt = __arpg_movement_runtime();
+    return _rt.cfg != undefined && _rt.cfg.dev_logging;
+}
+
+function __arpg_movement_log(_msg) {
+    if (!__arpg_movement_dev_logging()) return;
+    mmapi_log_info("arpg_movement", _msg);
+    mmapi_log_flush("arpg_movement");
+}
+
+// The shared context suffix: where Ari and the cursor are and what is held.
+function __arpg_movement_log_ctx() {
+    return " | ari=" + string(obj_ari.x) + "," + string(obj_ari.y)
+        + " mouse=" + string(mouse_x()) + "," + string(mouse_y())
+        + " slot=" + string(ARI.held_item_index);
 }
 
 function __arpg_movement_reset(_rt) {
@@ -657,6 +731,24 @@ function __arpg_movement_plan_interact(_target) {
     return _best;
 }
 
+// True when the physical left button is bound to the repeating tool action.
+// That is how the game's "continuous action" option works: it binds the
+// button to UseToolRepeated, whose held state re-fires the swing in AriFsm's
+// Default step. Only under that binding do held frames need re-selection.
+function __arpg_movement_left_is_repeating_action() {
+    var _bindings = BINDINGS.bindings[InputId.UseToolRepeated];
+    for (var _j = 0; _j < array_length(_bindings); _j++) {
+        var _binding = _bindings[_j];
+        if (_binding != undefined
+            && _binding.type == BindingType.Mouse
+            && _binding.keycode == mb_left)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 // True only when the physical left mouse button is one of the player's
 // configured vanilla tool-use bindings. LeftMouse itself is also bound to the
 // button for UI use and is intentionally not enough to enable this feature.
@@ -733,7 +825,11 @@ function __arpg_movement_predicted_pose(_rt, _cfg) {
 
     // Once a right hold has crossed the steering threshold, the injected stick
     // later in this heartbeat is the movement intent vanilla will actually use.
-    if (mouse_check_button(mb_right)
+    // This prediction is only read from PlayerState.Default, where steering
+    // exists solely when it is enabled and not restricted to riding.
+    if (_cfg.hold_to_steer
+        && !_cfg.mouse_move_mounted_only
+        && mouse_check_button(mb_right)
         && _rt.hold_frames + 1 > _cfg.steer_start_seconds * FPS)
     {
         var _mouse_dist = point_distance(obj_ari.x, obj_ari.y, mouse_x(), mouse_y());
@@ -846,22 +942,88 @@ function __arpg_movement_mouse_cell_select(_pose) {
     };
 }
 
-// Visible node sprites extend beyond their grid footprint (especially trees),
-// so prefer the renderer under the cursor and fall back to the raw grid cell.
+// Node categories the click handler acts on with a specific tool or weapon.
+// Everything else (crops, grass, bushes, furniture) falls through to the
+// terrain probes regardless of which node the picker returns.
+function __arpg_movement_click_actionable(_node) {
+    if (_node == undefined) return false;
+    switch (object_id_to_object_category(_node.object_id)) {
+        case ObjectCategory.Rock:
+        case ObjectCategory.Tree:
+        case ObjectCategory.Stump:
+        case ObjectCategory.DigSite:
+        case ObjectCategory.Breakable:
+            return true;
+    }
+    return false;
+}
+
+// The grid footprint decides first: every footprint cell maps to its node
+// (write_object_inst_node writes all write_size cells), so a click on a cell
+// an actionable node occupies IS that node — the player aimed at the tile
+// they see it standing on. Renderer bounding boxes must not override this:
+// they are bbox-only (the engine has no precise masks), and a tree's box
+// includes its whole transparent canopy while its lower base makes it sort
+// "drawn on top" of anything standing behind it — ranking renderers by draw
+// order alone made every click on such a rock arm the axe for the tree.
+//
+// Only when the clicked cell holds no actionable node — a genuine canopy or
+// sprite-overhang click — do the renderers under the point decide. There the
+// most specific sprite wins: smallest bounding box first (a rock's few
+// pixels beat a canopy spanning dozens of cells), draw order breaks ties.
 function __arpg_movement_clicked_node() {
-    var _renderer = overlap_point(mouse_x(), mouse_y(), obj_node_renderer);
-    if (_renderer != undefined
-        && instance_exists(_renderer)
-        && _renderer.node != undefined)
-    {
-        return _renderer.node;
+    var _mx = mouse_x();
+    var _my = mouse_y();
+
+    var _cell_node = undefined;
+    var _ni = GRID.try_node_index_for_room_position(_mx, _my);
+    if (_ni != undefined) {
+        _cell_node = GRID.node_parent[_ni];
+    }
+    if (__arpg_movement_click_actionable(_cell_node)) {
+        return _cell_node;
     }
 
-    var _ni = GRID.try_node_index_for_room_position(mouse_x(), mouse_y());
-    if (_ni != undefined) {
-        return GRID.node_parent[_ni];
+    // One persistent list, cleared per scan. The engine has ds_list_create
+    // but NO ds_list_destroy (the game itself never destroys a list) — a
+    // destroy call throws at runtime and kills the whole clock_tick handler.
+    var _rt = __arpg_movement_runtime();
+    if (_rt.click_scan_list == undefined) {
+        _rt.click_scan_list = ds_list_create();
     }
-    return undefined;
+    var _list = _rt.click_scan_list;
+    ds_list_clear(_list);
+    overlap_point_list(_mx, _my, obj_node_renderer, _list);
+
+    var _best = undefined;
+    var _best_area = infinity;
+    var _best_depth = infinity;
+    for (var _i = 0; _i < ds_list_size(_list); _i++) {
+        var _renderer = _list[| _i];
+        if (_renderer == undefined
+            || !instance_exists(_renderer)
+            || !__arpg_movement_click_actionable(_renderer.node))
+        {
+            continue;
+        }
+        var _area = (_renderer.bbox_right - _renderer.bbox_left)
+            * (_renderer.bbox_bottom - _renderer.bbox_top);
+        if (_area < _best_area
+            || (_area == _best_area && _renderer.depth < _best_depth))
+        {
+            _best_area = _area;
+            _best_depth = _renderer.depth;
+            _best = _renderer.node;
+        }
+    }
+    if (_best != undefined) {
+        return _best;
+    }
+
+    // Nothing actionable anywhere near the click: hand back whatever occupies
+    // the cell (possibly undefined) so the terrain probes see the same world
+    // the old grid fallback did.
+    return _cell_node;
 }
 
 function __arpg_movement_item_matches(_item, _use, _tool_type=undefined, _minimum_quality=undefined) {
@@ -1089,6 +1251,23 @@ function __arpg_movement_hoe_tills_cells(_item, _selection) {
     return false;
 }
 
+// The game's net test (net_target_in_tile) counts more than bugs: a
+// Rockclod's flying rocks and lit bombs are legal net targets too, because a
+// deliberate swing may catch them. Auto-selection must not turn that trick
+// into the default — a click at an incoming rock means "fight", not "catch" —
+// so it only offers the net for an actual bug on the cell. A hand-picked net
+// survives auto-selection through the held-item check, which still uses the
+// game's full test, so catching rocks on purpose keeps working.
+function __arpg_movement_bug_in_cell(_cell_x, _cell_y) {
+    return collision_rectangle(
+        _cell_x * 8,
+        _cell_y * 8,
+        _cell_x * 8 + 16,
+        _cell_y * 8 + 16,
+        obj_bug
+    ) != undefined;
+}
+
 // Terrain work has no clicked node to identify it — dry soil and bare dirt are
 // ground, not objects — so the game's own item/cell predicate decides instead.
 // Ordered by how much a wrong guess would cost: watering changes nothing that
@@ -1103,9 +1282,23 @@ function __arpg_movement_find_terrain_tool(_selection) {
         if (_index == undefined) continue;
 
         var _item = ARI.inventory.slot(_index).item;
-        var _usable = _tool_type == ToolType.Hoe
-            ? __arpg_movement_hoe_tills_cells(_item, _selection)
-            : __arpg_movement_item_affects_cells(_item, _selection);
+        var _usable;
+        if (_tool_type == ToolType.Hoe) {
+            _usable = __arpg_movement_hoe_tills_cells(_item, _selection);
+        } else if (_tool_type == ToolType.Net) {
+            var _bug = __arpg_movement_bug_in_cell(_selection.x, _selection.y);
+            _usable = _bug && __arpg_movement_item_affects_cells(_item, _selection);
+            if (!_bug
+                && __arpg_movement_dev_logging()
+                && __arpg_movement_item_affects_cells(_item, _selection))
+            {
+                __arpg_movement_log("net: suppressed, game test passes with no "
+                    + "bug on cell (catchable projectile?) sel="
+                    + string(_selection.x) + "," + string(_selection.y));
+            }
+        } else {
+            _usable = __arpg_movement_item_affects_cells(_item, _selection);
+        }
         if (_usable) return _index;
     }
     return undefined;
@@ -1135,6 +1328,11 @@ function __arpg_movement_find_exact_terrain_tool(_cell_x, _cell_y, _selection) {
         var _item = ARI.inventory.slot(_index).item;
         if (_tool_type == ToolType.Hoe
             && GRID.node_terrain_ground_kind[_ni] != GroundKind.Dirt)
+        {
+            continue;
+        }
+        if (_tool_type == ToolType.Net
+            && !__arpg_movement_bug_in_cell(_cell_x, _cell_y))
         {
             continue;
         }
@@ -1185,14 +1383,31 @@ function __arpg_movement_monster_near(_player_range_px) {
 // recognized tool targets never fall back to a weapon when the required tool
 // is absent, inadequate, or out of range.
 function __arpg_movement_auto_select_action_item(_rt) {
-    if (!mouse_check_button_pressed(mb_left)
-        || !__arpg_movement_left_is_action()
+    var _pressed = mouse_check_button_pressed(mb_left);
+
+    // Under the continuous-action binding, every repeat of a held swing passes
+    // back through Default, so selection may run on held frames too: a held
+    // sweep from a tree onto a stone then moves the axe to the pickaxe between
+    // swings. Only clicked-node targets re-select during a hold — the terrain
+    // probes and the mine weapon draw stay press-only below, so a sweep across
+    // tillable dirt cannot till it and a monster wandering close cannot yank
+    // the tool mid-swing.
+    if (!_pressed
+        && (!mouse_check_button(mb_left)
+            || !__arpg_movement_left_is_repeating_action()))
+    {
+        return;
+    }
+    if (!__arpg_movement_left_is_action()
         || ARI.held_animal_id != undefined)
     {
         return;
     }
 
     if (__arpg_movement_point_over_actionable_ui()) {
+        if (_pressed) {
+            __arpg_movement_log("click: over actionable UI, skipped");
+        }
         return;
     }
 
@@ -1200,6 +1415,10 @@ function __arpg_movement_auto_select_action_item(_rt) {
     if (_held != undefined
         && __arpg_movement_is_deliberate_placement(_held.prototype.use))
     {
+        if (_pressed) {
+            __arpg_movement_log("click: held placement item, skipped"
+                + __arpg_movement_log_ctx());
+        }
         return;
     }
 
@@ -1207,15 +1426,34 @@ function __arpg_movement_auto_select_action_item(_rt) {
     // weapon wins every world click, even one on a rock — a mid-fight click
     // must never trade the sword for a pickaxe, and a click that misses the
     // monster and lands on an unreachable stone must still draw it. That is
-    // why this runs before the clicked-node branch.
+    // why this runs before the clicked-node branch. On held frames the same
+    // closeness instead freezes the current item: force-drawing the weapon
+    // there would steal a mid-mining pickaxe.
     if (is_dungeon_room(room())) {
         var _weapon_index = __arpg_movement_find_item(ItemUse.Attack);
         if (_weapon_index != undefined
             && __arpg_movement_monster_near(arpg_movement_config().sword_enemy_range_px))
         {
-            __arpg_movement_select_item(_weapon_index);
+            if (_pressed) {
+                __arpg_movement_select_item(_weapon_index);
+                __arpg_movement_log("click: mines combat -> weapon slot "
+                    + string(_weapon_index) + __arpg_movement_log_ctx());
+            }
             return;
         }
+    }
+
+    // A held weapon in the mines is combat in progress even while no monster
+    // is momentarily in range (it died, it leapt away, the pack scattered): a
+    // held sweep never trades it for a tool, or the sword would turn into a
+    // pickaxe the instant the last monster falls with the cursor over a
+    // stone. A fresh click re-evaluates normally.
+    if (!_pressed
+        && is_dungeon_room(room())
+        && _held != undefined
+        && _held.prototype.use == ItemUse.Attack)
+    {
+        return;
     }
 
     var _pose = __arpg_movement_predicted_pose(_rt, arpg_movement_config());
@@ -1250,15 +1488,31 @@ function __arpg_movement_auto_select_action_item(_rt) {
                         _pose.x, _pose.y, _pose.cardinal, _node
                     ))
                 {
+                    if (_pressed) {
+                        __arpg_movement_log(
+                            "click: breakable, no weapon or out of swing range"
+                            + __arpg_movement_log_ctx());
+                    }
                     return;
                 }
+                var _prev_slot = ARI.held_item_index;
                 __arpg_movement_select_item(_weapon_index);
+                if (_pressed || ARI.held_item_index != _prev_slot) {
+                    __arpg_movement_log((_pressed ? "click" : "sweep")
+                        + ": breakable -> weapon slot " + string(_weapon_index)
+                        + __arpg_movement_log_ctx());
+                }
                 return;
         }
 
         if (_tool_type != undefined) {
             var _tool_index = __arpg_movement_find_item(ItemUse.UseTool, _tool_type, _minimum_quality);
             if (_tool_index == undefined) {
+                if (_pressed) {
+                    __arpg_movement_log("click: node cat=" + string(_category)
+                        + " needs tool type " + string(_tool_type)
+                        + ", none usable in inventory" + __arpg_movement_log_ctx());
+                }
                 return;
             }
 
@@ -1271,16 +1525,51 @@ function __arpg_movement_auto_select_action_item(_rt) {
                     _pose.x, _pose.y, _pose.cardinal, _node, _tool.prototype
                 ) == undefined)
             {
+                // Out of swing range. This is common even point-blank: a
+                // tree's chop cells are only the 2x2 trunk at footprint
+                // top_left + 2..3, so a click on the visible wood of a big
+                // tree or log often selects cells the axe cannot act on. A
+                // fresh click still voices intent — arm the tool and let the
+                // swing whiff exactly as vanilla would, so the player steps
+                // in and the next swing lands. A held sweep is aim, not
+                // intent: it only switches when the target is truly in range.
+                if (_pressed) {
+                    __arpg_movement_select_item(_tool_index);
+                    __arpg_movement_log("click: node cat=" + string(_category)
+                        + " obj=" + string(_node.object_id)
+                        + " tl=" + string(_node.top_left_x) + "," + string(_node.top_left_y)
+                        + " out of reach, armed tool slot " + string(_tool_index)
+                        + " anyway, sel=" + string(_selection.x) + "," + string(_selection.y)
+                        + __arpg_movement_log_ctx());
+                }
                 return;
             }
+            var _prev_slot = ARI.held_item_index;
             __arpg_movement_select_item(_tool_index);
+            if (_pressed || ARI.held_item_index != _prev_slot) {
+                __arpg_movement_log((_pressed ? "click" : "sweep")
+                    + ": node cat=" + string(_category)
+                    + " obj=" + string(_node.object_id)
+                    + " tl=" + string(_node.top_left_x) + "," + string(_node.top_left_y)
+                    + " -> tool slot " + string(_tool_index)
+                    + __arpg_movement_log_ctx());
+            }
             return;
         }
+    }
+
+    // Held sweeps end at node targets. The terrain probes below run on fresh
+    // clicks only: re-running them per repeat would let a held sweep across
+    // tillable dirt till it, or swing the net at a bug the cursor grazed.
+    if (!_pressed) {
+        return;
     }
 
     // The clicked object had no explicit required tool. Preserve a hand-picked
     // item that the game says can act on the selected cells.
     if (_held != undefined && __arpg_movement_item_affects_cells(_held, _selection)) {
+        __arpg_movement_log("click: held item already acts on selection, kept"
+            + __arpg_movement_log_ctx());
         return;
     }
 
@@ -1296,11 +1585,16 @@ function __arpg_movement_auto_select_action_item(_rt) {
     }
     if (_terrain_index != undefined) {
         __arpg_movement_select_item(_terrain_index);
+        __arpg_movement_log("click: terrain tool -> slot " + string(_terrain_index)
+            + " sel=" + string(_selection.x) + "," + string(_selection.y)
+            + __arpg_movement_log_ctx());
         return;
     }
 
     // Every remaining click — no recognized target, no terrain tool, and no
     // monster in reach (handled up front) — keeps the current selection.
+    __arpg_movement_log("click: no auto target, selection kept"
+        + __arpg_movement_log_ctx());
 }
 
 // Vanilla aims a click at the cursor only while obj_ari.using_mouse is true,
@@ -1780,8 +2074,9 @@ function __arpg_movement_update_interact_path(_rt, _cfg) {
     return false;
 }
 
-// F6 is registered through MMAPI so conflicts with other mods are diagnosed
-// in one place instead of competing through independent raw-key polling.
+// The toggle hotkey (config `auto_select_hotkey`, default F6) is registered
+// through MMAPI so conflicts with other mods are diagnosed in one place
+// instead of competing through independent raw-key polling.
 function arpg_movement_toggle_auto_select() {
     if (!instance_exists(obj_ari) || game_paused()) return;
 
@@ -1790,6 +2085,8 @@ function arpg_movement_toggle_auto_select() {
 
     _cfg.auto_select_action_item = !_cfg.auto_select_action_item;
     mmapi_config_write("arpg_movement", ARPG_MOVEMENT_CONFIG_VERSION, _cfg);
+    __arpg_movement_log("hotkey: auto-select toggled "
+        + (_cfg.auto_select_action_item ? "ON" : "OFF"));
     create_notification(ANCHOR.wrap_for_local(
         _cfg.auto_select_action_item
             ? "ARPG auto-select: ON"
@@ -1964,13 +2261,26 @@ function arpg_movement_clock_tick(_ctx) {
     var _right_down = mouse_check_button(mb_right);
     var _right_pressed = mouse_check_button_pressed(mb_right);
 
+    // Which right-mouse features may act from the current state. Steering is
+    // its own toggle; taps matter on foot when either tap feature is on
+    // (mounted taps only ever return the press to vanilla). With neither
+    // allowed, the press is never muted and right mouse is exactly vanilla.
+    var _steer_allowed = _cfg.hold_to_steer
+        && (!_cfg.mouse_move_mounted_only || _in_mount);
+    var _tap_allowed = !_in_mount
+        && !_cfg.mouse_move_mounted_only
+        && (_cfg.tap_to_pathfind || _cfg.click_to_interact);
+
     // Mute the physical press before checking cancellation bindings below.
     // Interact is bound to right mouse by default; if an active tap-walk saw
     // that press first, it stopped the old path and produced a pause before
     // the release could retarget it. Other Interact bindings (such as E)
     // remain unmuted and still cancel mouse movement normally.
-    if (_right_pressed) {
+    if (_right_pressed && (_steer_allowed || _tap_allowed)) {
         __arpg_movement_mute_mouse_press(mb_right);
+    } else if (_right_pressed) {
+        __arpg_movement_log("press: right stays vanilla (no gesture allowed here)"
+            + __arpg_movement_log_ctx());
     }
 
     if (_in_default) {
@@ -2004,6 +2314,7 @@ function arpg_movement_clock_tick(_ctx) {
     {
         if (_in_our_path) {
             __arpg_movement_stop_walk(_rt);
+            __arpg_movement_log("path: cancelled by movement keys");
         }
         __arpg_movement_reset(_rt);
         return;
@@ -2014,6 +2325,16 @@ function arpg_movement_clock_tick(_ctx) {
     if (_in_our_path && __arpg_movement_path_cancel_requested())
     {
         __arpg_movement_stop_walk(_rt);
+        __arpg_movement_log("path: cancelled by player command");
+        __arpg_movement_reset(_rt);
+        return;
+    }
+
+    // No feature may claim the button here (all gestures configured off, or
+    // restricted to riding while on foot). The press above stayed unmuted, so
+    // vanilla already handles it; a leftover mod path still finishes or gets
+    // cancelled through the checks above.
+    if (!_steer_allowed && !_tap_allowed) {
         __arpg_movement_reset(_rt);
         return;
     }
@@ -2028,7 +2349,7 @@ function arpg_movement_clock_tick(_ctx) {
         }
 
         // Held past the threshold: steer toward the cursor.
-        if (_rt.hold_frames > _cfg.steer_start_seconds * FPS) {
+        if (_steer_allowed && _rt.hold_frames > _cfg.steer_start_seconds * FPS) {
             var _mx = mouse_x();
             var _my = mouse_y();
             var _dist = point_distance(obj_ari.x, obj_ari.y, _mx, _my);
@@ -2080,6 +2401,8 @@ function arpg_movement_clock_tick(_ctx) {
                     var _mount_idx = array_index(MOUSE_BUTTONS, mb_right);
                     INPUT.raw_mouse[_mount_idx] = set_flag(INPUT.raw_mouse[_mount_idx], DigitalStatus.Pressed);
                     INPUT.raw_mouse[_mount_idx] = remove_flag(INPUT.raw_mouse[_mount_idx], DigitalStatus.Muted);
+                    __arpg_movement_log("tap: mounted, press handed back"
+                        + __arpg_movement_log_ctx());
                 } else {
                     _rt.running = !INPUT.check(InputId.Walk);
 
@@ -2094,7 +2417,11 @@ function arpg_movement_clock_tick(_ctx) {
                     if (_target != undefined) {
                         // A tall sprite can be clicked while its interaction
                         // point is already in range. Avoid a pointless path.
-                        if (!__arpg_movement_try_interact(_target)) {
+                        if (__arpg_movement_try_interact(_target)) {
+                            __arpg_movement_log("tap: direct interact "
+                                + object_get_name(_target.object_index)
+                                + __arpg_movement_log_ctx());
+                        } else {
                             var _plan = __arpg_movement_plan_interact(_target);
                             if (_plan != undefined) {
                                 __arpg_movement_remember_interact_plan(
@@ -2107,31 +2434,51 @@ function arpg_movement_clock_tick(_ctx) {
                                     _plan.y,
                                     _plan.path_data
                                 )) {
+                                    __arpg_movement_log("tap: interact path to "
+                                        + string(_plan.x) + "," + string(_plan.y)
+                                        + " for " + object_get_name(_target.object_index)
+                                        + __arpg_movement_log_ctx());
                                     if (_cfg.click_marker) {
                                         __arpg_movement_show_marker(_tx, _ty, true);
                                     }
                                 } else {
+                                    __arpg_movement_log("tap: interact path refused for "
+                                        + object_get_name(_target.object_index)
+                                        + __arpg_movement_log_ctx());
                                     __arpg_movement_clear_interact(_rt);
                                     if (_cfg.invalid_click_marker) {
                                         __arpg_movement_show_marker(_tx, _ty, false);
                                     }
                                 }
-                            } else if (_cfg.invalid_click_marker) {
-                                __arpg_movement_show_marker(_tx, _ty, false);
+                            } else {
+                                __arpg_movement_log("tap: interact unreachable for "
+                                    + object_get_name(_target.object_index)
+                                    + __arpg_movement_log_ctx());
+                                if (_cfg.invalid_click_marker) {
+                                    __arpg_movement_show_marker(_tx, _ty, false);
+                                }
                             }
                         }
-                    } else if (point_distance(obj_ari.x, obj_ari.y, _tx, _ty)
-                        > _cfg.interact_radius_px)
+                    } else if (_cfg.tap_to_pathfind
+                        && point_distance(obj_ari.x, obj_ari.y, _tx, _ty)
+                            > _cfg.interact_radius_px)
                     {
                         // Open ground uses the original tap path. Swimming has
                         // no valid local path and receives failure feedback.
                         __arpg_movement_clear_interact(_rt);
                         if (!_in_swim && __arpg_movement_path_to(_tx, _ty)) {
+                            __arpg_movement_log("tap: path to " + string(_tx) + ","
+                                + string(_ty) + " run=" + string(_rt.running)
+                                + __arpg_movement_log_ctx());
                             if (_cfg.click_marker) {
                                 __arpg_movement_show_marker(_tx, _ty, true);
                             }
-                        } else if (_cfg.invalid_click_marker) {
-                            __arpg_movement_show_marker(_tx, _ty, false);
+                        } else {
+                            __arpg_movement_log("tap: path refused (water, swim, "
+                                + "or unreachable)" + __arpg_movement_log_ctx());
+                            if (_cfg.invalid_click_marker) {
+                                __arpg_movement_show_marker(_tx, _ty, false);
+                            }
                         }
                     } else {
                         // A nearby ground tap is handed back so the game's
@@ -2139,6 +2486,8 @@ function arpg_movement_clock_tick(_ctx) {
                         var _idx2 = array_index(MOUSE_BUTTONS, mb_right);
                         INPUT.raw_mouse[_idx2] = set_flag(INPUT.raw_mouse[_idx2], DigitalStatus.Pressed);
                         INPUT.raw_mouse[_idx2] = remove_flag(INPUT.raw_mouse[_idx2], DigitalStatus.Muted);
+                        __arpg_movement_log("tap: press handed back to vanilla"
+                            + __arpg_movement_log_ctx());
                     }
                 }
             }
@@ -2146,6 +2495,25 @@ function arpg_movement_clock_tick(_ctx) {
             // stick stops being injected, the player stops.
         }
         __arpg_movement_reset(_rt);
+    }
+}
+
+// The toggle hotkey comes from the config, and the config cannot be read at
+// top-level boot (file IO is not ready). mmapi_register's first call is the
+// first safe IO moment; it then repeats every frame, so the latch keeps this
+// from re-registering.
+function __arpg_movement_install_hotkey() {
+    var _rt = __arpg_movement_runtime();
+    if (_rt.hotkey_installed) return;
+    _rt.hotkey_installed = true;
+
+    var _binding = mmapi_hotkey_binding_from_name(
+        arpg_movement_config().auto_select_hotkey
+    );
+    if (_binding != undefined) {
+        mmapi_hotkey_register_binding(_binding, arpg_movement_toggle_auto_select);
+        __arpg_movement_log("hotkey: registered "
+            + arpg_movement_config().auto_select_hotkey);
     }
 }
 
@@ -2157,13 +2525,9 @@ function arpg_movement_register_callbacks() {
 
     mmapi_on("game.clock_tick", arpg_movement_clock_tick);
     mmapi_guard("items.use_guard", arpg_movement_items_use_guard);
-
-    var _f6 = mmapi_hotkey_vk_from_name("F6");
-    if (_f6 != undefined) {
-        mmapi_hotkey_register(_f6, arpg_movement_toggle_auto_select);
-    }
+    mmapi_register(__arpg_movement_install_hotkey);
 }
 
 // Boot wiring: memory-only top level.
-mmapi_mod_declare("arpg_movement", "2.2.0");
+mmapi_mod_declare("arpg_movement", "2.2.1");
 arpg_movement_register_callbacks();
