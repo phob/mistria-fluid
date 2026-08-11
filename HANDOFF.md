@@ -74,6 +74,32 @@ resolved the user's rock/axe mis-selection.
    wins), draw order as tiebreak, actionable nodes only. Non-actionable cell
    occupant is the final fallback for the terrain probes.
 
+9. **Shop outside-click closing fixed** (user report: shop menus stopped
+   closing on outside clicks; regression from the game's 1.0 update). Cause:
+   1.0's `player_gold_prefab` (StoreMenu.gml:148) stores a **screen-sized
+   invisible canvas** (`gold_canvas`, holding the 30x15 gold pill) in a menu
+   field. `__arpg_movement_menu_owns_root` matched that field, so
+   `__arpg_movement_point_inside_menu` counted the whole screen as inside
+   the shop. Fix: canvas-type nodes (`NodeId.Canvas`) never count as visible
+   menu content — generalizes the old "skip the menu's own canvas" rule;
+   visible children still count. Verified live both ways (inside click keeps
+   the shop open, outside click closes it) via the automated UI loop below.
+   Kept: dev-gated probe logging in the closer, and three debug-agent
+   drivers (`arpg_movement.debug_open_store` / `debug_node_info` /
+   `debug_nodes_at`), registered only when MMAPI's debug agent is enabled.
+
+## Verified-by-automation UI test loop (new this session)
+
+No human input needed: enable `debug_enabled` in `mod_data/mmapi/mmapi.json`
+→ launch `FieldsOfMistria.exe --auto-start continue` → drive
+`control.json`/`state.json` (`{"rev":N,"commands":[{"op":"call","fn":...}]}`,
+rev must exceed `state.json.applied_rev`; wait ~25s after launch or the call
+fires before the save loads) → inject real clicks with user32
+SetCursorPos/mouse_event via PowerShell Add-Type (re-Add-Type every call,
+shell state resets; GUI space is 960x540, so physical = GUI x window/960) →
+read the mod log. Note: the game's "minspec" content canvas is smaller than
+GUI space and centered — the shop window spans roughly x 287-620, y 160-380.
+
 ## Immediate next step
 
 Changes 6–8 are installed (compile gate OK), **unverified in game**. Retest:

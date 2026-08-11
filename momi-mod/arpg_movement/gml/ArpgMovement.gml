@@ -313,9 +313,14 @@ function __arpg_movement_point_over_actionable_ui() {
 }
 
 // True when the pointer is over any visible part owned by this menu or by a
-// tooltip floating above it. A menu's root canvas covers the whole UI area,
-// so only its descendants count. BackgroundMenu hangs from
-// ANCHOR.screen_canvas and has no source_menu.
+// tooltip floating above it. Canvas nodes never count: they are invisible
+// layout containers, and several span the whole screen while the content
+// they hold is a small child — a menu's root canvas, and prefab containers
+// like player_gold_prefab's gold_canvas (a screen-sized canvas the store
+// keeps in a field, whose visible gold pill is a 30x15 child; counting the
+// container made every click read as inside the shop and broke outside-click
+// closing). BackgroundMenu hangs from ANCHOR.screen_canvas and has no
+// source_menu.
 function __arpg_movement_point_inside_menu(_menu) {
     for (var _i = 0; _i < ANCHOR.node_count; _i++) {
         var _node = ANCHOR.node_registrar[| _i];
@@ -331,7 +336,7 @@ function __arpg_movement_point_inside_menu(_menu) {
                 __arpg_movement_screen_root(_node)
             );
         if (!_owned
-            || (_owner != undefined && _node == _owner.canvas)
+            || _node.type == NodeId.Canvas
             || !_node.safe_enabled
             || _node.cache_alpha <= 0)
         {
@@ -339,6 +344,17 @@ function __arpg_movement_point_inside_menu(_menu) {
         }
 
         if (ANCHOR.point_in_node(_node, MOUSE_GUI_X, MOUSE_GUI_Y)) {
+            if (__arpg_movement_dev_logging()) {
+                var _owner_desc = _owner == undefined
+                    ? "root" : string(_owner.type);
+                __arpg_movement_log("menu: inside via node idx=" + string(_node.idx)
+                    + " owner=" + _owner_desc
+                    + " bbox=" + string(_node.cache_bbox_left) + ","
+                    + string(_node.cache_bbox_top) + ","
+                    + string(_node.cache_bbox_right) + ","
+                    + string(_node.cache_bbox_bottom)
+                    + " mouse=" + string(MOUSE_GUI_X) + "," + string(MOUSE_GUI_Y));
+            }
             return true;
         }
     }
@@ -463,6 +479,15 @@ function __arpg_movement_try_close_menu_from_outside() {
             && __arpg_movement_menu_has_safe_custom_back(_menu.type);
         var _allows_outside_close = _menu.listen_for_exit_flag
             || _custom_back;
+        if (__arpg_movement_dev_logging()) {
+            __arpg_movement_log("menu: outside-click probe type=" + string(_menu.type)
+                + " close_req=" + string(_menu.close_requested)
+                + " listen=" + string(_menu.listen_for_exit_flag)
+                + " custom_back=" + string(_custom_back)
+                + " canvas=" + string(_menu.canvas != undefined)
+                + " unlocked=" + string(_menu.canvas != undefined
+                    && _menu.canvas.is_unlocked()));
+        }
         if (_menu.close_requested
             || !_allows_outside_close
             || _menu.canvas == undefined
@@ -2514,6 +2539,89 @@ function __arpg_movement_install_hotkey() {
         mmapi_hotkey_register_binding(_binding, arpg_movement_toggle_auto_select);
         __arpg_movement_log("hotkey: registered "
             + arpg_movement_config().auto_select_hotkey);
+    }
+
+    // Debug-agent drivers, following the MMAPI pattern: registered only while
+    // the agent is enabled, so release users never see them and they claim
+    // nothing. They power the automated UI test loop (open a store from the
+    // debugger, inject an OS-level click, read this mod's log) that found the
+    // gold_canvas outside-click bug — keep them for the next menu hunt.
+    var _mmapi_cfg = mmapi_config_load("mmapi");
+    if (mmapi_config_get(_mmapi_cfg, "debug_enabled", false) == true) {
+        mmapi_debug_register_fn("arpg_movement.debug_open_store", function() {
+            ANCHOR.spawn_menu(Menu.Store, Store.General);
+        }, { description: "Open the general store menu", args: [] });
+
+        mmapi_debug_register_fn("arpg_movement.debug_node_info", function(_idx) {
+            var _target = undefined;
+            for (var _i = 0; _i < ANCHOR.node_count; _i++) {
+                var _n = ANCHOR.node_registrar[| _i];
+                if (_n != undefined && _n.idx == _idx) {
+                    _target = _n;
+                    break;
+                }
+            }
+            if (_target == undefined) return "node not found";
+
+            var _report = "";
+            var _walk = _target;
+            while (_walk != undefined && _walk != ANCHOR.screen_canvas) {
+                _report += "[idx=" + string(_walk.idx)
+                    + " menu=" + (_walk.source_menu == undefined
+                        ? "none" : string(_walk.source_menu.type))
+                    + " alpha=" + string(_walk.cache_alpha)
+                    + " hover=" + string(_walk.listens_for_hovers)
+                    + " taps=" + string(_walk.listens_for_taps)
+                    + "] <- ";
+                _walk = _walk.parent;
+            }
+
+            var _root = __arpg_movement_screen_root(_target);
+            for (var _m = 0; _m < ANCHOR.open_menus.count(); _m++) {
+                var _menu = ANCHOR.open_menus.get(_m);
+                var _fields = struct_get_names(_menu);
+                for (var _f = 0; _f < array_length(_fields); _f++) {
+                    if (_menu[$ _fields[_f]] == _root) {
+                        _report += " ROOT=field '" + _fields[_f]
+                            + "' of menu type " + string(_menu.type) + ";";
+                    }
+                }
+            }
+            __arpg_movement_log("debug: node " + string(_idx) + ": " + _report);
+            return _report;
+        }, {
+            description: "Dump a UI node's parent chain and owning menu field",
+            args: [{ name: "idx", type: "number" }],
+        });
+
+        mmapi_debug_register_fn("arpg_movement.debug_nodes_at", function(_x, _y) {
+            var _report = "";
+            for (var _i = 0; _i < ANCHOR.node_count; _i++) {
+                var _node = ANCHOR.node_registrar[| _i];
+                if (_node == undefined || _node.freed) continue;
+                if (!ANCHOR.point_in_node(_node, _x, _y)) continue;
+                var _owner = _node.source_menu;
+                _report += "[idx=" + string(_node.idx)
+                    + " type=" + string(_node.type)
+                    + " menu=" + (_owner == undefined ? "none" : string(_owner.type))
+                    + " en=" + string(_node.safe_enabled)
+                    + " a=" + string(_node.cache_alpha)
+                    + " bbox=" + string(_node.cache_bbox_left) + ","
+                    + string(_node.cache_bbox_top) + ","
+                    + string(_node.cache_bbox_right) + ","
+                    + string(_node.cache_bbox_bottom) + "] ";
+            }
+            if (_report == "") _report = "no nodes contain point";
+            __arpg_movement_log("debug: nodes at " + string(_x) + ","
+                + string(_y) + ": " + _report);
+            return _report;
+        }, {
+            description: "List every UI node whose bbox contains a GUI point",
+            args: [
+                { name: "x", type: "number" },
+                { name: "y", type: "number" },
+            ],
+        });
     }
 }
 
