@@ -25,7 +25,7 @@ function PlayerMenu() : AnchorMenu(Menu.Player) constructor {
 
             var text_node = ANCHOR.text(icon_node)
                 .set_align(Align.RightOut, Align.Middle)
-                .set_xy(3, 1)
+                .set_x(3)
                 .set_lut(COMMON_LUT, lut_index)
                 .set_text(text)
 
@@ -78,24 +78,64 @@ function PlayerMenu() : AnchorMenu(Menu.Player) constructor {
             .add_to_pilot(self.left_pilot, true)
             .set_tap_callback(function() {
                 var popup = popup_creator("misc_local/town_rank_guide")
-                popup.backplate.set_size(216, 236);
-                ANCHOR.sprite(popup.backplate)
-                    .set_sprite(spr_ui_renown_chart_temp)
-                    .set_align(Align.Center, Align.Middle)
-                var button = popup.create_button("misc_local/close");
-                button.add_y(2);
+                popup.backplate.set_size(232, 236);
+
+                var grid = ANCHOR.sprite(popup.backplate)
+                    .set_xy(33, 30)
+                    .set_sprite(spr_ui_renown_chart_grid)
+
+                var icon_pos = Vec2(3, 5);
+                var renown_icon_pos = Vec2(94, 6);
+                for (var i = 100; i >= 0; i -= 10;) {
+                    var a_target = 1;
+                    if renown_to_level(ARI.renown) < i {
+                        a_target = 0.50;
+                        ANCHOR.sprite(grid)
+                            .set_xy(-2, renown_icon_pos.y - 5)
+                            .set_sprite(spr_ui_blacksmithing_lock_icon)
+                            .set_align(Align.RightIn, Align.TopIn)
+                            .set_alpha(0.4)
+                    }
+                    var rank = renown_level_to_rank(i);
+                    var icon = ANCHOR.sprite(grid)
+                        .set_sprite(rank.small_sprite)
+                        .set_xy(icon_pos)
+                        .set_alpha(a_target)
+                    var name = ANCHOR.text(icon)
+                        .set_align(Align.RightOut, Align.Middle)
+                        .set_x(4)
+                        .set_lut(COMMON_LUT)
+                        .set_key(rank.name)
+
+                    var renown_icon = ANCHOR.sprite(grid)
+                        .set_xy(renown_icon_pos)
+                        .set_sprite(spr_ui_journal_inventory_renown_icon)
+                        .set_alpha(a_target)
+
+                    var level_text = ANCHOR.text(renown_icon)
+                        .set_x(4)
+                        .set_align(Align.RightOut, Align.Middle)
+                        .set_lut(COMMON_LUT)
+                        .set_text(format("{Local} {}", "misc_local/renown_lvl_insert", i))
+
+
+                    var inc = 18;
+                    icon_pos.y += inc;
+                    renown_icon_pos.y += inc;
+                }
+
                 popup.spawn();
             })
 
         var icon_node = ANCHOR.sprite(self.renown_backplate)
-            .set_xy(3, -1)
+            .set_x(3)
             .set_sprite(rank.small_sprite)
             .set_speed(1)
             .set_align(Align.LeftIn, Align.Middle)
 
         var text_node = ANCHOR.text(icon_node)
             .set_align(Align.RightOut, Align.Middle)
-            .set_xy(3, 1)
+            .set_x(3)
             .set_lut(COMMON_LUT)
             .set_text(format("{Local}: ", "misc_local/town_rank"))
 
@@ -217,7 +257,7 @@ function PlayerMenu() : AnchorMenu(Menu.Player) constructor {
             .add_to_pilot(self.left_pilot, true)
             .set_tap_callback(function() {
                 var popup = popup_creator("misc_local/skill_levels")
-                popup.backplate.set_size(216, 236);
+                popup.backplate.set_size(216, 237);
                 popup.sub_plate = ANCHOR.nine_slice(popup.backplate)
                     .set_size(150, 178)
                     .set_align(Align.Center, Align.Middle)
@@ -285,7 +325,7 @@ function PlayerMenu() : AnchorMenu(Menu.Player) constructor {
                 }
 
                 var button = popup.create_button("misc_local/close");
-                button.add_y(2);
+                button.add_y(4);
                 popup.spawn();
             })
 
@@ -420,20 +460,22 @@ function PlayerMenu() : AnchorMenu(Menu.Player) constructor {
         self.sort_icon.glyph_node.add_x(4);
     }
 
+    var insert = local_language() == "rus" ? "_ru" : "";
+
     self.a_tab = ANCHOR.sprite(self.inventory.canvas)
         .set_align(Align.RightOut, Align.TopIn)
-        .set_sprite(spr_ui_journal_inventory_section_a)
+        .set_sprite(string_to_asset(format("spr_ui_journal_inventory_section_a{}", insert)))
         .set_xy(-8, 10)
 
     self.b_tab = ANCHOR.sprite(self.a_tab)
         .set_align(Align.LeftIn, Align.BottomOut)
-        .set_sprite(spr_ui_journal_inventory_section_b)
+        .set_sprite(string_to_asset(format("spr_ui_journal_inventory_section_b{}", insert)))
         .set_enabled(ARI.inventory.size() > 10)
         .set_y(2)
 
     self.c_tab = ANCHOR.sprite(self.b_tab)
         .set_align(Align.LeftIn, Align.BottomOut)
-        .set_sprite(spr_ui_journal_inventory_section_c)
+        .set_sprite(string_to_asset(format("spr_ui_journal_inventory_section_c{}", insert)))
         .set_enabled(ARI.inventory.size() > 20)
         .set_y(2)
 

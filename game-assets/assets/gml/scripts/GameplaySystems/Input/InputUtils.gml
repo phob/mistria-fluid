@@ -399,6 +399,22 @@ function keycode_to_binding_type(keycode) {
     impossible("Failed to find an BindingType for {}", keycode);
 }
 
+function big_keyboard_keys_sprite() {
+    switch local_language() {
+        case "spa": return spr_ui_generic_keyboard_keys_es;
+        case "fra": return spr_ui_generic_keyboard_keys_fr;
+        default: return spr_ui_generic_keyboard_keys;
+    }
+}
+
+function small_keyboard_keys_sprite() {
+    switch local_language() {
+        case "spa": return spr_ui_generic_keyboard_keys_small_es;
+        case "fra": return spr_ui_generic_keyboard_keys_small_fr;
+        default: return spr_ui_generic_keyboard_keys_small;
+    }
+}
+
 //
 function get_display_for_input_id(input_id) {
     var slot = ON_GAMEPAD || ON_CONSOLE ? 2 : 0;
@@ -406,8 +422,8 @@ function get_display_for_input_id(input_id) {
     return binding != undefined
         ? get_display_for_keycode(binding.keycode)
         : {
-            big_sprite: spr_ui_generic_keyboard_keys,
-            small_sprite: spr_ui_generic_keyboard_keys_small,
+            big_sprite: big_keyboard_keys_sprite(),
+            small_sprite: small_keyboard_keys_sprite(),
             index: 0,
         };
 }
@@ -420,8 +436,8 @@ function get_display_for_keycode(keycode) {
     var index = undefined;
     switch input_type {
         case BindingType.Keyboard:
-            big_sprite = spr_ui_generic_keyboard_keys;
-            small_sprite = spr_ui_generic_keyboard_keys_small;
+            big_sprite = big_keyboard_keys_sprite();
+            small_sprite = small_keyboard_keys_sprite();
             index = kb_input_to_index(keycode);
             break;
         case BindingType.Mouse:

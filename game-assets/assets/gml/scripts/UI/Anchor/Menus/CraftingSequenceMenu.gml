@@ -51,13 +51,7 @@ function CraftingSequenceMenu(crafting_menu, recipe, item_lists, target_time, ea
 
         if len > 1 {
             tooltip.title.set_text(fmt("{} (x{})", live_item.get_display_name(), len));
-
-            //
-            if live_item.prototype.stars != undefined && tooltip.title.lines() > 1 {
-                tooltip.backplate.add_height(10);
-                tooltip.header.add_height(10);
-                tooltip.body.add_y(10);
-            }
+            tooltip.refresh_title_height();
         }
         var button = tooltip.create_button(
             "misc_local/close",
@@ -103,17 +97,10 @@ function CraftingSequenceMenu(crafting_menu, recipe, item_lists, target_time, ea
 
             self.progress_bar.max_width = 126;
 
-            self.icon = ANCHOR.sprite(self.progress_bar.frontplate)
+            self.skill_ui = render_skill_level(self.progress_bar.frontplate, self.skill_id)
                 .set_x(13)
-                .set_align(Align.LeftIn, Align.Middle)
-                .set_sprite(string_to_asset(fiddle_get(format("skills/{Skill}/sprite", self.skill_id))))
-
-            self.level_text = ANCHOR.text(self.icon)
-                .set_text(self.eases.first().level)
-                .set_sprite_font("player_level")
-                .set_lut(COMMON_LUT, CommonLutIndex.Green)
-                .set_align(Align.RightOut, Align.Middle)
-                .set_xy(3, 1)
+                .set_align(Align.LeftIn, Align.Middle);
+            self.skill_ui.update_level(self.eases.first().level);
 
             self.skill_up = undefined;
 
@@ -125,7 +112,7 @@ function CraftingSequenceMenu(crafting_menu, recipe, item_lists, target_time, ea
                 }
 
                 self.level_up_delay = 120;
-                self.level_text.set_text(order.level + 1);
+                self.skill_ui.update_level(order.level + 1);
             }
 
             self.progress_bar.level_up_continue_check = function() {

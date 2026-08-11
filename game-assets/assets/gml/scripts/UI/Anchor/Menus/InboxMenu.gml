@@ -69,9 +69,7 @@ function InboxMenu() : AnchorMenu(Menu.Inbox) constructor {
         while !self.quests_to_start.is_empty() {
             var quest = self.quests_to_start.pop();
             QUEST_LOG.start(quest);
-            //
-            var raw = format("{Local}:\n{Local}", "misc_local/quest_started", QUESTS.get(quest).name);
-            create_notification(ANCHOR.wrap_for_local(raw));
+            create_quest_popup(quest);
         }
     }
 
@@ -110,11 +108,11 @@ function InboxMenu() : AnchorMenu(Menu.Inbox) constructor {
                     }, [key]);
 
                 element.text_label
+                    .set_max_width(111)
                     .set_ghost_key(letter.subject)
                     .set_text(subject_text)
                     .set_x(28)
                     .set_align(Align.LeftIn, Align.Middle)
-                    .set_max_width(111)
 
                 element.npc_face = ANCHOR.sprite(element)
                     .set_sprite(get_npc_icon(letter.npc))
@@ -204,14 +202,13 @@ function InboxMenu() : AnchorMenu(Menu.Inbox) constructor {
         var text = ANCHOR.text(element)
             .set_xy(4, 4)
             .allow_line_breaks()
+            .set_ghost_key(letter.body_key)
             .set_text(description_text)
             .set_lut(COMMON_LUT)
 
-        var full_height = ANCHOR.text_height(description_text, text.get_max_size().x) + 8;
+        var full_height = text.measure().y + 8;
 
         self.right_scroller.add_height_to_element(element, full_height - element.get_height());
-
-        text.set_text(description_text);
 
         if !letter.items.is_empty() {
             var header_element = self.right_scroller.new_element(21)
@@ -228,13 +225,12 @@ function InboxMenu() : AnchorMenu(Menu.Inbox) constructor {
                 var listing = letter.items.get(i).listing;
 
                 static MAX_WIDTH = 130;
-                var label = listing_label(listing);
-                var root_height = ANCHOR.text_height(label, MAX_WIDTH) + 8;
 
-                var element = self.right_scroller.new_element(root_height)
+                var element = self.right_scroller.new_element(0)
                     .add_to_pilot(self.right_pilot, true)
 
                 var nodes = render_quest_reward(listing, element, MAX_WIDTH);
+                self.right_scroller.add_height_to_element(element, nodes.name.measure().y + 8);
 
                 element.set_think_callback(function(element, nodes) {
                     if self.active_letter == undefined {

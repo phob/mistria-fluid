@@ -10,6 +10,12 @@ CROWN_QUESTS = undefined;
 #macro TALI_CHALLENGES global.__tali_challenges
 TALI_CHALLENGES = undefined;
 
+#macro STILLWELL_CHALLENGES global.__stillwell_challenges
+STILLWELL_CHALLENGES = undefined;
+
+#macro QUESTS_BY_CATEGORY global.__quests_by_category
+QUESTS_BY_CATEGORY = undefined;
+
 //
 function Quest() constructor {
     self.name = undefined;
@@ -36,10 +42,27 @@ function load_quests() {
     quest_parse_file(quests, fiddle_get("quests/story_quests"), QuestCategory.Story);
     quest_parse_file(quests, fiddle_get("quests/crown_quests"), QuestCategory.Crown);
     quest_parse_file(quests, fiddle_get("quests/tali_challenges"), QuestCategory.TaliChallenge);
+    quest_parse_file(quests, fiddle_get("quests/stillwell_challenges"), QuestCategory.StillwellChallenge);
     quest_parse_file(quests, fiddle_get("quests/heart_quests"), QuestCategory.Heart);
     quest_parse_file(quests, fiddle_get("quests/fetch_quests"), QuestCategory.Fetch);
 
     return quests;
+}
+
+//
+//
+function gather_quests_by_category() {
+    var out = array_create_ext(QuestCategory.LEN, function() {
+        return [];
+    });
+    var keys = QUESTS.keys();
+    for (var i = 0; i < array_length(keys); i++) {
+        var this_key = keys[i];
+        var this_quest = QUESTS.get(this_key);
+        array_push(out[this_quest.category], this_key);
+    }
+
+    return out;
 }
 
 function quest_parse_file(quests, f, category) {
@@ -61,7 +84,7 @@ function quest_parse_file(quests, f, category) {
 function parse_quest(f_quest) {
     var quest = new Quest();
 
-    if !DEBUG_ASSERTIONS {
+    if DEBUG_ASSERTIONS == false {
         f_quest[$ "name"] = f_quest[$ "name"] == undefined ? "misc_local/missing" : f_quest[$ "name"];
         f_quest[$ "description"] = f_quest[$ "description"] == undefined ? "misc_local/missing" : f_quest[$ "description"]
         f_quest[$ "npc_for_icon"] =  f_quest[$ "npc_for_icon"] == undefined ? "celine" : f_quest[$ "npc_for_icon"]
@@ -254,7 +277,16 @@ function load_tali_challenges() {
     var challenges = fiddle_get("quests/tali_registry/order");
     for (var i = 0; i < array_length(challenges); i++) {
         var challenge = challenges[i];
-        assert(QUESTS.contains_key(challenge), "Crown quest does not exist: {}", challenge);
+        assert(QUESTS.contains_key(challenge), "Tali quest does not exist: {}", challenge);
+    }
+    return challenges;
+}
+
+function load_stillwell_challenges() {
+    var challenges = fiddle_get("quests/stillwell_registry/order");
+    for (var i = 0; i < array_length(challenges); i++) {
+        var challenge = challenges[i];
+        assert(QUESTS.contains_key(challenge), "Stillwell quest does not exist: {}", challenge);
     }
     return challenges;
 }

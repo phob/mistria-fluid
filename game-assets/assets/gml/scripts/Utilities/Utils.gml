@@ -241,6 +241,16 @@ function array_to_string(array, delim, amount=undefined) {
 }
 
 //
+function array_is_superset_of(a, b) {
+    for (var i = 0; i < array_length(b); i++) {
+        if array_has(a, b[i]) == false {
+            return false;
+        }
+    }
+    return true;
+}
+
+//
 //
 //
 function opt_and_then(value, func) {
@@ -553,6 +563,27 @@ function pretty_callstack() {
     }
 
     return out.reverse().join(" -> ");
+}
+
+//
+function bell_sound_path() {
+    var tag = undefined;
+    if CURRENT_LOCATION_ID == LocationId.Town {
+        tag = "";
+    } else if is_dungeon_room(room()) || CURRENT_LOCATION_ID == LocationId.MinesEntry {
+        tag = "FromMines";
+    } else {
+        tag = "2D";
+    }
+
+    var base = undefined;
+    if world_mod_enabled(WorldMod.BellTowerBellBroken) {
+        base = "SoundEffects/SpecialEvents/Alt8pmBells/8pmBellBroken"
+    } else {
+        base = BELL_SOUNDS[ARI.bell_sound].sound;
+    }
+
+    return format("{}{}", base, tag);
 }
 
 //

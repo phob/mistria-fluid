@@ -42,8 +42,8 @@ function on_dungeon_enter() {
 
 //
 function on_dungeon_exit() {
+    game_stats_end_mines_run(DUNGEON_RUNNER.exit_mines_stats_condition ?? "elevator");
     DUNGEON_RUNNER = undefined;
-    game_stats_end_mines_run("elevator");
 
     ARI.status_effects.cancel(StatusEffectId.GuardiansShield);
 

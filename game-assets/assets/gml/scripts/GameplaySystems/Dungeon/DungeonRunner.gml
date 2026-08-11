@@ -14,12 +14,13 @@ function DungeonRunner(itinerary, start_floor) constructor {
     self.blocking_music = false;
     self.side_levels = array_create(DUNGEON_FLOOR_COUNT, undefined);
     self.previous_floors = array_bool(DUNGEON_FLOOR_COUNT);
+    self.exit_mines_stats_condition = undefined;
 
     if !ARI.has_seen_treasure_level_today && ARI.perk_active(Perk.TreasureHunter) {
         var level = try_create_side_room(
             DungeonImpl.Treasure,
-            self.itinerary.count(),
-            fiddle_get("dungeons/misc/treasure_chance"),
+            start_floor,
+            fiddle_get("dungeons/misc/treasure_range"),
         );
         if level != undefined {
             self.side_levels[level.index] = level;
@@ -29,37 +30,55 @@ function DungeonRunner(itinerary, start_floor) constructor {
     if !ARI.has_seen_ritual_level_today && ARI.perk_active(Perk.LostToHistory) {
         var level = try_create_side_room(
             DungeonImpl.Ritual,
-            self.itinerary.count(),
-            fiddle_get("dungeons/misc/ritual_chance") + ARI.perk_value(Perk.LostToHistoryTwo),
+            start_floor,
+            fiddle_get("dungeons/misc/ritual_range") * ARI.perk_value(Perk.LostToHistoryTwo),
         );
         if level != undefined {
             self.side_levels[level.index] = level;
         }
     }
 
-
-
     //
     function current_level() {
-        if self.side_levels[self.current_floor] != undefined && !self.previous_floors[self.current_floor] {
-            return self.side_levels[self.current_floor];
+        return self.level(self.current_floor);
+    }
+
+    //
+    function level(value) {
+        if self.side_levels[value] != undefined && !self.previous_floors[value] {
+            return self.side_levels[value];
         } else {
-            return self.itinerary.get(self.current_floor);
+            return self.itinerary.get(value);
         }
     }
 
     //
     //
-    function proceed(ladder_choice_index=0, skip_transition=false) {
+    function proceed(end_floor_kind, skip_transition=false) {
         var level = self.current_level();
-        if self.current_floor + 1 >= self.itinerary.count() {
-            ANCHOR.get_menu(Menu.InfoToasts).create_notification(ANCHOR.wrap_for_local("You have reached the maximum floor for this alpha!"));
-            return;
+
+        var next_level = undefined;
+        if level[$ "is_side_room"] == true {
+            next_level = self.itinerary.get(self.current_floor);
+        } else {
+            //
+            //
+            if self.current_floor + 1 >= self.itinerary.count() {
+                return;
+            }
+
+            next_level = self.level(self.current_floor + 1);
         }
 
-        self.last_floor = self.current_floor;
+        var itin = goto_gm_room(next_level.gm_room, TEST_SUITE || skip_transition);
+        itin.mines = end_floor_kind;
+    }
 
+    //
+    function post_proceed(end_floor_kind) {
+        self.last_floor = self.current_floor;
         self.previous_floors[self.current_floor] = true;
+        game_stats_end_mines_floor("end_floor_kind");
 
         //
         if self.side_levels[self.current_floor] != undefined {
@@ -67,13 +86,6 @@ function DungeonRunner(itinerary, start_floor) constructor {
         } else {
             self.current_floor += 1;
         }
-
-        var next_level = self.current_level();
-        if level.impl == DungeonImpl.LadderChoice {
-            next_level.impl = self.ladder_choice_options[ladder_choice_index];
-            self.ladder_choice_options = [undefined, undefined];
-        }
-        goto_gm_room(next_level.gm_room, TEST_SUITE || skip_transition);
     }
 
     //
@@ -187,7 +199,10 @@ function DungeonRunner(itinerary, start_floor) constructor {
         }
         self.ladder_score = 0;
 
-        assert_neq(self.ladder_score_needed, 0, "There are no instances or enemies in mines room {}; ensure there are spawnable locations", asset_to_string(room()));
+        //
+        if DEBUG_ASSERTIONS {
+            assert_neq(self.ladder_score_needed, 0, "There are no instances or enemies in mines room {}; ensure there are spawnable locations", asset_to_string(room()));
+        }
 
         if self.current_level().impl == DungeonImpl.LadderChoice {
             var next_level = self.itinerary.get(self.current_floor + 1);
@@ -257,22 +272,22 @@ function DungeonRunner(itinerary, start_floor) constructor {
     }
 }
 
-function try_create_side_room(impl, max_flr, chance_val) {
-    for (var flr = 0; flr < max_flr; flr++) {
-        if chance_percent(chance_val) {
-            var rm = get_room_for_dungeon_floor(flr, impl);
-            if rm != undefined {
-                return {
-                    index: flr,
-                    gm_room: rm,
-                    biome: floor_to_dungeon_biome(flr),
-                    impl: impl,
-                    is_side_room: true,
-                };
-            }
-        }
+function try_create_side_room(impl, start_floor, range) {
+    var floor = irandom_range(start_floor, start_floor + range);
+    if floor >= 100 {
+        return undefined;
     }
-    return undefined;
+
+    var rm = get_room_for_dungeon_floor(floor, impl);
+    if rm != undefined {
+        return {
+            index: floor,
+            gm_room: rm,
+            biome: floor_to_dungeon_biome(floor),
+            impl: impl,
+            is_side_room: true,
+        };
+    }
 }
 
 function in_dark_mines() {

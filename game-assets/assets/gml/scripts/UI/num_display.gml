@@ -1,4 +1,8 @@
 function num_display(num) {
+    if local_get_info(LocalInfoRequest.CommasInNumbers) == false {
+        return string(num);
+    }
+
     var r, i;
     r = string(num);
     if string_pos(".", r) != 0 {

@@ -45,7 +45,7 @@ object_create(
 
                             MIST.request_scene("reveal_mistmare");
 
-                            ARI.mount = create_default_mount();
+                            ARI.mount = create_default_mount("mistmare");
 
                             //
                             if BINDINGS.get_primary_binding(InputId.Ride) == undefined {

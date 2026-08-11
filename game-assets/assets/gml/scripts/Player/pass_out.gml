@@ -16,8 +16,8 @@ function pass_out(faint=false) {
         game_stats_increment(GAME_STATS, "faints");
         create_notification("misc_local/two_am_alert");
 
-        if is_dungeon_room(room()) {
-            game_stats_end_mines_run("faint");
+        if DUNGEON_RUNNER != undefined {
+            DUNGEON_RUNNER.exit_mines_stats_condition = "faint";
         }
     }
     TANGO.play("SoundEffects/Ari/Faint");

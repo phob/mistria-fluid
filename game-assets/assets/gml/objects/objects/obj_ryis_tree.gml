@@ -12,6 +12,7 @@ object_create(
                 var stump_removed = requirements_pass(Requirement.RyisStumpRemoved);
                 var planted = requirements_pass(Requirement.RyisTreePlanted);
                 var grown = requirements_pass(Requirement.RyisTreeGrown);
+                var intermediate_stage = requirements_pass(Requirement.RyisTreeIntermediate);
 
                 //
                 var grid = GRIDS[LocationId.EasternRoad]; //
@@ -23,6 +24,21 @@ object_create(
 
                 if grown {
                     self.sprite_index = string_to_asset(format("spr_easternroad_hawthorn_tree_{Season}_birdhouse", CALENDAR.season()));
+                } else if intermediate_stage {
+                    switch CALENDAR.season() {
+                        case Season.Spring:
+                            self.sprite_index = spr_easternroad_hawthorn_tree_intermediate_spring;
+                            break;
+                        case Season.Summer:
+                            self.sprite_index = spr_easternroad_hawthorn_tree_intermediate_summer;
+                            break;
+                        case Season.Fall:
+                            self.sprite_index = spr_easternroad_hawthorn_tree_intermediate_fall;
+                            break;
+                        case Season.Winter:
+                            self.sprite_index = spr_easternroad_hawthorn_tree_intermediate_winter;
+                            break;
+                    }
                 } else if planted {
                     switch CALENDAR.season() {
                         case Season.Spring:
@@ -47,7 +63,7 @@ object_create(
                     self.shadow_caster = SHADOW_GRID.caster_create(x, y);
                 }
 
-                if stump_removed || planted || grown {
+                if stump_removed || planted || grown || intermediate_stage {
                     SHADOW_WAIT_LIST.push({
                         x,
                         y,

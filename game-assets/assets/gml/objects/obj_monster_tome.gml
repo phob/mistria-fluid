@@ -227,6 +227,7 @@ object_create(
                     })
                     .step(function() {
                         if self.wind_vfx != undefined && instance_exists(self.wind_vfx) {
+                            self.wind_vfx.depth = owner.depth + 1;
                             if fsm.state_frame >= owner.config.wind_attack_duration {
                                 if self.tarball != undefined && instance_exists(self.tarball) {
                                     instance_destroy(self.tarball);

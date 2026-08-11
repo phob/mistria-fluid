@@ -115,7 +115,7 @@ function build_dungeon_room(grid) {
     }
 
     //
-    instance_create_depth(0, 0, DUNGEON_SHADOW_DEPTH, obj_shadow_level, {
+    var shadow_level = instance_create_depth(0, 0, DUNGEON_SHADOW_DEPTH, obj_shadow_level, {
         shadow_maps,
         shadow_map_offsets: [
             Vec2(0, 0),
@@ -125,8 +125,10 @@ function build_dungeon_room(grid) {
         ],
         render_outlines: false,
         target_shadow_grid: SHADOW_GRID,
-        write_z: true,
     });
+    if DEBUG_TOOLS {
+        shadow_level.name = "Level_0_Shadows";
+    }
 
     //
     var room_info = DUNGEON_ROOMS.get(room());

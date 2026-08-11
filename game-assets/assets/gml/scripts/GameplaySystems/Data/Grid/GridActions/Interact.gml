@@ -33,9 +33,12 @@ function can_interact(node) {
                 case ObjectId.RuinsSealDoor:
                 case ObjectId.BigBell:
                 case ObjectId.AutoFeeder:
+                case ObjectId.BabyCradle:
+                case ObjectId.JunipersProtectionScroll:
                     return true;
+                case ObjectId.CaldarusDragonswornStatue:
                 case ObjectId.EspressoMachine:
-                    return node.can_make_espresso;
+                    return !ARI.used_object_today[node.object_id];
                 case ObjectId.Mailbox:
                     return ARI.inbox.contents.count() > 0;
                 case ObjectId.TesseraeTree:
@@ -48,11 +51,16 @@ function can_interact(node) {
                         return ARI.held_animal_id == undefined && obj_ari.is_mounted() == false;
                     }
 
+                    if node.prototype.restoration != undefined {
+                        return !ARI.used_object_today[node.object_id];
+                    }
+
                     return node.prototype.interaction_turn_on != undefined
                         || node.prototype.interaction_chest != undefined
                         || node.prototype.factory != undefined
                         || node.prototype.forecaster != undefined
                         || node.prototype.is_journal
+                        || node.prototype.is_crystal_resonator
                         || node.prototype.is_date_photo
                         || (
                             node.prototype.essence_machine != undefined
@@ -60,7 +68,7 @@ function can_interact(node) {
                                 && ARI.held_item() != undefined
                                 && ARI.held_item().prototype.essence_charge != undefined
                             )
-                        || (node.prototype.animal_toy != undefined && node.animal_count >= 2)
+                        || (node.prototype.animal_toy != undefined && animals_using_toy(node) > 0)
                         || (node.prototype.bed_kind != undefined && requirements_pass(Requirement.Sleep))
                         || (node.prototype.house_stairs != undefined);
             }
@@ -83,6 +91,8 @@ function interact(node) {
     if can_interact(node) == false {
         return false;
     }
+
+    ARI.used_object_today[node.object_id] = true;
 
     switch object_id_to_object_category(node.object_id) {
         case ObjectCategory.Crop:
@@ -208,7 +218,6 @@ function interact(node) {
                     crop: item_id_to_string(item),
                     day: total_days(),
                 });
-                refresh_achievements();
             }
 
             process_crop_harvest(node, obj_ari.cardinal);
@@ -273,6 +282,20 @@ function interact(node) {
                     ANCHOR.spawn_menu(Menu.Inbox);
                     obj_ari.set_idle_simple();
                     break;
+                case ObjectId.BabyCradle:
+                    //
+                    //
+                    if ARI.held_child() == undefined {
+                        for (var i = 0; i < array_length(ARI.children); i++) {
+                            var child = ARI.children[i];
+                            if child.location == ChildLocation.InCradle {
+                                child.set_location(ChildLocation.WithAri);
+                            }
+                        }
+                    } else {
+                        ARI.held_child().set_location(ChildLocation.InCradle);
+                    }
+                    break;
                 case ObjectId.FarmHouseCalendar:
                     spawn_calendar_ui(CALENDAR.time)
                         .with_today(CALENDAR.time)
@@ -284,7 +307,6 @@ function interact(node) {
                     var item = new LiveItem(ItemId.Espresso);
                     item.infusion = Infusion.Speedy;
                     use_item_fast(item);
-                    node.can_make_espresso = false;
                     break;
                 case ObjectId.TesseraeTree:
                     node.day_count = 0;
@@ -448,9 +470,74 @@ function interact(node) {
                     menu.build();
 
                     break;
+                case ObjectId.JunipersProtectionScroll:
+                    obj_ari.set_idle_simple();
+                    play_conversation(
+                        NpcId.Caldarus,
+                        GAMEPLAY_CONVERSATIONS[GpTriggeredConversation.JunipersProtectionScrollText],
+                    );
+                    break;
+                case ObjectId.CaldarusDragonswornStatue:
+                    obj_ari.set_idle_simple();
+                    play_conversation(
+                        NpcId.Caldarus,
+                        GAMEPLAY_CONVERSATIONS[GpTriggeredConversation.CaldarusDragonswornStatueText],
+                        function(_, node) {
+                            ARI.gain_essence(5 * ESSENCE_MORSEL_SMALL, node.renderer.x, node.renderer.y, 4, 0);
+                        },
+                        [node]
+                    );
+                    break;
                 default:
                     if node.prototype.is_date_photo {
                         spawn_date_photo(node.date_photo);
+                    }
+
+                    if node.prototype.restoration != undefined {
+                        play_conversation(
+                            NpcId.Caldarus,
+                            GAMEPLAY_CONVERSATIONS[node.prototype.restoration.convo],
+                            function(_, node) {
+                                obj_ari.set_idle_simple();
+
+                                //
+                                //
+                                var chain = new_world_chain(node.renderer, CURRENT_LOCATION_ID)
+                                TANGO.play("SoundEffects/Objects/UseSpouseGift", node.renderer.x, node.renderer.y);
+                                repeat 4 {
+                                    chain.append(LinkId.Function, function(node) {
+                                        var inst = create_morsel(
+                                            node.renderer.x + irandom_range(-4, 4),
+                                            node.renderer.y + irandom_range(-4, 4),
+                                            irandom_range(12, 32),
+                                            MorselType.Health,
+                                            irandom(MorselSize.LEN - 1),
+                                            round(node.prototype.restoration.health / 4),
+                                            node.renderer.y,
+                                            false,
+                                        );
+                                        inst.z = -16;
+                                    }, [node])
+                                    chain.append(LinkId.Timer, 10);
+                                    chain.append(LinkId.Function, function(node) {
+                                        var inst = create_morsel(
+                                            node.renderer.x + irandom_range(-4, 4),
+                                            node.renderer.y + irandom_range(-4, 4),
+                                            irandom_range(12, 32),
+                                            MorselType.Stamina,
+                                            irandom(MorselSize.LEN - 1),
+                                            round(node.prototype.restoration.stamina / 4),
+                                            node.renderer.y,
+                                            false,
+                                        );
+                                        inst.z = -16;
+                                    }, [node])
+                                    chain.append(LinkId.Timer, 10);
+                                }
+
+                            },
+                            [node]
+                        );
                     }
 
                     if node.prototype.interact_menu != undefined {
@@ -593,6 +680,17 @@ function interact(node) {
                         }
                     }
 
+                    if node.prototype.is_crystal_resonator {
+                        song_selection_ui(function(song) {
+                            if CURRENT_DYN_INDEX != undefined {
+                                ARI.dyn_song_overrides[string(CURRENT_DYN_INDEX)] = song;
+                            } else {
+                                ARI.song_overrides[CURRENT_LOCATION_ID] = song;
+                            }
+                            MUSIC_PLAYER.refresh();
+                        });
+                    }
+
                     if node.prototype.bed_kind != undefined {
                         if is_home_location(CURRENT_LOCATION_ID) {
                             var popup = popup_creator("misc_local/bed", "misc_local/go_to_sleep");
@@ -602,7 +700,7 @@ function interact(node) {
                                     return;
                                 }
 
-                                if CLOCK.time >= hours(25) + minutes(10) {
+                                if CLOCK.time >= hours(25) + minutes(50) {
                                     T2R.write("slept_last_minute", true);
                                 }
 
@@ -612,14 +710,12 @@ function interact(node) {
                                 };
 
                                 var spouse = undefined;
-                                if node.prototype.bed_kind == BedKind.Double {
-                                    with par_NPC {
-                                        if !self.me.is_spouse() {
-                                            continue;
-                                        }
-                                        spouse = npc_id_to_string(self.npc_id);
-                                        break;
+                                with par_NPC {
+                                    if !self.me.is_spouse() {
+                                        continue;
                                     }
+                                    spouse = npc_id_to_string(self.npc_id);
+                                    break;
                                 }
 
                                 MIST.blackboard.insert("spouse", spouse);
@@ -734,6 +830,11 @@ function interact(node) {
                                 self.fsm.change_state(PetState.Wander);
                             }
                         }
+
+                        stop_animal_toy_sfx(node);
+
+                        //
+                        node.animal_count = 0;
                     }
 
                     if node.prototype.essence_machine != undefined
@@ -801,9 +902,9 @@ function interact(node) {
                                             renderer.stash_sprite = renderer.sprite_index;
                                             renderer.sprite_index = disappearance_animation;
 
-                                            renderer.animation_end_callback = method(renderer, function() {
+                                            renderer.give_animation_end_callback(function() {
                                                 self.sprite_index = self.stash_sprite;
-                                                self.animation_end_callback = undefined;
+                                                self.give_animation_end_callback(function() {});
                                             });
                                         }
                                         return obj_ari.fsm.check_state_inclusive(PlayerState.Pathfind) == false;
@@ -821,16 +922,16 @@ function interact(node) {
                                                 node.renderer.stash_sprite = node.renderer.sprite_index;
                                                 node.renderer.sprite_index = appearance_animation;
 
-                                                node.renderer.animation_end_callback = method(node.renderer, function() {
+                                                node.renderer.give_animation_end_callback(function() {
                                                     self.sprite_index = self.stash_sprite;
-                                                    self.animation_end_callback = undefined;
+                                                    self.give_animation_end_callback(function() {});
                                                 });
                                             }
                                         }
                                     }, [node.prototype.house_stairs.appearance_animation[node.cardinal_index]])
                             } else {
                                 var offset = node.prototype.house_stairs.drop_off_offset[node.cardinal_index];
-                                TANGO.play("SoundEffects/Entrances/StairsTransition/StairsTransition", node.top_left_x * 8, node.top_left_y * 8);
+                                TANGO.play("SoundEffects/Entrances/StairsTransition", node.top_left_x * 8, node.top_left_y * 8);
 
                                 //
                                 obj_ari.set_idle_simple();

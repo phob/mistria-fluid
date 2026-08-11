@@ -497,7 +497,7 @@ function FishFsm() {
                                     yy += _y_dist;
                                     var ni = GRID.try_node_index_for_room_position(xx, yy);
 
-                                    if ni != undefined && tile_forces_to_level(GRID.node_force[ni]) == self.owner.preferred_depth {
+                                    if ni != undefined && GRID.node_force[ni] != undefined && tile_forces_to_level(GRID.node_force[ni]) == self.owner.preferred_depth {
                                         //
                                         _break = true;
                                         break;

@@ -118,7 +118,7 @@ function PlayerAnimationDatabase() constructor {
                 name: fiddle_asset.name,
                 slots: array_create(AnimationSlot.LEN, undefined),
                 ui_slot: string_to_par_ui_slot(fiddle_asset.ui_slot),
-                ui_sub_category: fiddle_asset.ui_sub_category,
+                ui_sub_category: fiddle_asset["ui_sub_category"],
                 ui_asset_icon: ui_asset_icon,
                 ui_body_icon: ui_body_icon,
                 ui_merged_icon: ui_merged_icon,

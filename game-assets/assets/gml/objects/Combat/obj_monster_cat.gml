@@ -537,7 +537,7 @@ object_create(
             if self.column == undefined {
                 self.draw();
             } else {
-                shader_set_texture("u_LutTexture", self.lut_texture);
+                shader_set_texture("u_LutTexture", self.lut_texture, 0, "u_LutTexelSize");
                 gpu_set_extra(UberShaderKind.PaletteSwap, self.uvs[0], self.uvs[1], self.column);
                 draw_sprite_ext(
                     self.sprite_index,

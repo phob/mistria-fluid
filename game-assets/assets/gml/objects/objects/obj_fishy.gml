@@ -35,7 +35,7 @@ object_create(
             //
             if self.sparkle {
                 var w = (bbox_right - bbox_left) /2 ;
-                draw_sprite_ext_pixel_perfect(
+                draw_sprite_ext(
                     self.sparkle_sprite,
                     ((current_time() / 1000) * 60) * FRAME_TIME,
                     x + lengthdir_x(w, self.dir + 180),

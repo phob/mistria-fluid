@@ -85,6 +85,11 @@ function T2r() constructor {
             t2_write_world_fact("museum_total_count", total);
         }
 
+        t2_write_world_fact(
+            "completed_museum",
+            requirements_pass(ACHIEVEMENTS[Achievement.CelebratedCurator]),
+        );
+
         //
         {
             var animal_count = array_create(AnimalKind.LEN, 0);
@@ -100,6 +105,26 @@ function T2r() constructor {
         }
 
         t2_write_world_fact("is_ari_birthday", ARI.is_birthday());
+        report_children_facts();
+
+        var wedding_is_tomorrow = false;
+        var wedding_was_yesterday = false;
+        var is_aniv = false;
+        if ARI.wedding_date != undefined {
+            wedding_was_yesterday = CALENDAR.date_is(ARI.wedding_date + days(1));
+            wedding_is_tomorrow = CALENDAR.date_is(ARI.wedding_date - days(1));
+
+            if CALENDAR.season() == get_seasons(ARI.wedding_date) {
+                var normalized_now = CALENDAR.time - (years(1) * CALENDAR.year());
+                var normalized_wedding = ARI.wedding_date - (years(1) * get_years(ARI.wedding_date));
+                var is_this_year = CALENDAR.year() == get_years(ARI.wedding_date);
+                is_aniv = !is_this_year && normalized_now == normalized_wedding;
+            }
+        }
+        t2_write_world_fact("wedding_was_yesterday", wedding_was_yesterday);
+        t2_write_world_fact("wedding_is_tomorrow", wedding_is_tomorrow);
+        t2_write_world_fact("is_anniversary", is_aniv);
+        t2_write_world_fact("proposed_today", false);
 
         //
         var weather_word;
@@ -267,8 +292,8 @@ function T2r() constructor {
 
     //
     //
-    function schedule_execute(npc_id, time) {
-        var output = t2_schedule_execute(npc_id_to_string(npc_id), time);
+    function schedule_execute(npc_id, unified_time) {
+        var output = t2_schedule_execute(npc_id_to_string(npc_id), unified_time);
         if output == undefined {
             return undefined;
         } else {
@@ -285,6 +310,12 @@ function T2r() constructor {
     //
     function schedule_current_destination(npc_id) {
         return t2_schedule_current_destination(npc_id_to_string(npc_id));
+    }
+
+    //
+    //
+    function schedule_prior_destination(npc_id) {
+        return t2_schedule_prior_destination(npc_id_to_string(npc_id));
     }
 
     //
@@ -308,18 +339,39 @@ function T2r() constructor {
     }
 
     //
+    //
+    function schedule_roommate_jump(npc_id, old_time, time) {
+        return array_map(
+            t2_schedule_roommate_jump(
+                npc_id_to_string(npc_id),
+                old_time,
+                time,
+                CALENDAR.time,
+                ROOMMATE_TIMES.go_out,
+                ROOMMATE_TIMES.come_home,
+            ),
+            parse_t2_action,
+        );
+    }
+
+    //
     function schedule_name(npc_id) {
         return t2_schedule_name(npc_id_to_string(npc_id));
     }
 
     //
     function schedule_reload(npc_id, schedule_name, time, had_arrived) {
-        return self.parse_t2_output(t2_schedule_reload(npc_id_to_string(npc_id), schedule_name, time, had_arrived));
+        var output = t2_schedule_reload(npc_id_to_string(npc_id), schedule_name, time, had_arrived);
+        if output == undefined {
+            return undefined;
+        } else {
+            return self.parse_t2_output(output);
+        }
     }
 
     //
-    function schedule_end(npc_id) {
-        return self.parse_t2_output(t2_schedule_end(npc_id_to_string(npc_id), CALENDAR.unified_time()));
+    function schedule_end(npc_id, expect_early=false) {
+        return self.parse_t2_output(t2_schedule_end(npc_id_to_string(npc_id), CALENDAR.unified_time(), expect_early));
     }
 
     //
@@ -667,6 +719,10 @@ enum T2ActionId {
     Prop,
     DestroyProp,
     Blackout,
+    SwapSchedule,
+    Quest,
+    SpawnStamina,
+    UpdateStatus,
 }
 
 #macro T2Action global.__t2_action_factory
@@ -816,6 +872,37 @@ function T2ActionFactory() constructor {
         }
     }
 
+    static SwapSchedule = function(npc, schedule, finish) {
+        return {
+            schedule,
+            finish,
+            npc: string_to_npc_id(npc),
+            type: T2ActionId.SwapSchedule,
+        }
+    }
+
+    static Quest = function(quest_name) {
+        return {
+            quest_name,
+            type: T2ActionId.Quest
+        }
+    }
+
+    static SpawnStamina = function(stamina) {
+        return {
+            stamina,
+            type: T2ActionId.SpawnStamina,
+        }
+    }
+
+    static UpdateStatus = function(npc, status) {
+        return {
+            npc,
+            status,
+            type: T2ActionId.UpdateStatus,
+        }
+    }
+
     static NoSpeaker = {
         type: T2ActionId.NoSpeaker,
     }
@@ -866,6 +953,14 @@ function parse_t2_action(raw_action) {
             return T2Action.DestroyProp(c.point_name, c.location_id);
         case T2ActionId.Blackout:
             return T2Action.Blackout(c);
+        case T2ActionId.Quest:
+            return T2Action.Quest(c);
+        case T2ActionId.SpawnStamina:
+            return T2Action.SpawnStamina(c);
+        case T2ActionId.UpdateStatus:
+            return T2Action.UpdateStatus(string_to_npc_id(c.npc), c.status);
+        case T2ActionId.SwapSchedule:
+            return T2Action.SwapSchedule(c.npc, c.schedule, c.finish);
         default: impossible("unexpected type: {}", raw_action.type);
     }
 }
@@ -876,7 +971,10 @@ function parse_t2_world_fact(raw_wf) {
         case "string":
             return string(raw_wf.content);
         case "float":
-            return real(raw_wf.content);
+            //
+            //
+            //
+            return real(raw_wf.content ?? 0);
         case "undefined":
             return undefined;
         case "i64":
@@ -886,6 +984,27 @@ function parse_t2_world_fact(raw_wf) {
 }
 
 function process_t2_action(action, current_npc_id, ctx) {
+    //
+    //
+    static BANNED_ROOMMATE_ACTIONS = [
+        T2ActionId.Animation,
+        T2ActionId.Outfit,
+        T2ActionId.Activity,
+        T2ActionId.Routine,
+    ];
+    if array_contains(BANNED_ROOMMATE_ACTIONS, action.type) {
+        var npc = NPCS[action.npc ?? current_npc_id];
+        if npc.at_farm() && npc.is_roommate() {
+
+            //
+            if action.type != T2ActionId.Routine
+                || action.routine_id != string_to_routine(format("{NpcId}_roommate", npc.id))
+            {
+                return;
+            }
+        }
+    }
+
     switch action.type {
         case T2ActionId.Item:
             if action.count > 0 {
@@ -982,7 +1101,6 @@ function process_t2_action(action, current_npc_id, ctx) {
             var speaker = is_cameo
                 ? new CameoSpeaker(string_to_cameo_id(action.speaker))
                 : new NpcSpeaker(string_to_npc_id(action.speaker));
-
             textbox.requested_speaker = speaker;
             break;
         case T2ActionId.Portrait:
@@ -992,7 +1110,17 @@ function process_t2_action(action, current_npc_id, ctx) {
                 return;
             }
 
-            textbox.requested_speaker.set_portrait(action.portrait);
+            var portrait = action.portrait;
+            var npc = try_string_to_npc_id(textbox.requested_speaker.id);
+            if npc != undefined && NPCS[npc].held_child() != undefined {
+                var child_fallbacks  = NPC_PROTOTYPES[npc].child_fallbacks;
+                var fallback = child_fallbacks[action.portrait];
+                if fallback != undefined {
+                    portrait = fallback;
+                }
+            }
+
+            textbox.requested_speaker.set_portrait(portrait);
             break;
         case T2ActionId.Effect:
             var textbox = ANCHOR.get_menu(Menu.Textbox);
@@ -1048,6 +1176,33 @@ function process_t2_action(action, current_npc_id, ctx) {
         case T2ActionId.DestroyProp:
             PROPS.destroy_prop(action.point_name, action.location_id);
             break;
+        case T2ActionId.Quest:
+            QUEST_LOG.start(action.quest_name);
+            create_quest_popup(action.quest_name);
+            break;
+        case T2ActionId.SpawnStamina:
+            var chain = new_world_chain(obj_ari, CURRENT_LOCATION_ID)
+            var amount = action.stamina div 10;
+            repeat amount {
+               chain.append(LinkId.Function, function() {
+                    var inst = create_morsel(
+                        obj_ari.x + irandom_range(-4, 4),
+                        obj_ari.y + irandom_range(-4, 4),
+                        irandom_range(12, 32),
+                        MorselType.Stamina,
+                        irandom(MorselSize.LEN - 1),
+                        10,
+                        obj_ari.y,
+                    );
+                    inst.z = -16;
+                })
+                chain.append(LinkId.Timer, 10);
+            }
+            break;
+        case T2ActionId.UpdateStatus:
+            T2R.write(format("{NpcId}_status", action.npc), action.status);
+            NPCS[action.npc].report_relationship();
+            break;
         case T2ActionId.Blackout:
             var textbox = ANCHOR.get_menu(Menu.Textbox);
             if textbox == undefined {
@@ -1055,6 +1210,21 @@ function process_t2_action(action, current_npc_id, ctx) {
                 return;
             }
             textbox.blackout_frames = action.frames;
+            break;
+        case T2ActionId.SwapSchedule:
+            var npc = NPCS[action.npc];
+
+            var requested_schedule = action.schedule ?? T2R.request_schedule(action.npc);
+
+            if IN_NPC_TIME_JUMP || npc.location_position.location_id != CURRENT_LOCATION_ID {
+                perform_schedule_swap(action.npc, requested_schedule, action.finish, CALENDAR.unified_time());
+            } else {
+                npc.swap_schedule_request = {
+                    schedule_name: requested_schedule,
+                    finish: action.finish,
+                };
+            }
+
             break;
         default: impossible("Unexpected T2ActionId: {}", action.type);
     }
@@ -1102,4 +1272,107 @@ enum ConversationKind {
     Gift,
     GameplayTriggered,
     DateAcceptance,
+}
+
+//
+function perform_schedule_swap(npc_id, schedule_name, finish, time_target) {
+    trace("Swapping {NpcId} to {} + mini-jump to {Time} (finish: {bool})", npc_id, schedule_name, time_target, finish);
+
+    //
+    //
+    if finish {
+        while true {
+            if T2R.schedule_current_action_has_arrived(npc_id) == false {
+                var arrival_actions = T2R.schedule_arrived_at_destination(npc_id, hours(26));
+                for (var i = 0; i < array_length(arrival_actions); i++) {
+                    process_t2_action(arrival_actions[i], npc_id);
+                }
+            }
+
+            var output = T2R.schedule_execute(npc_id, CALENDAR.time + hours(26));
+            if output == undefined {
+                break;
+            }
+
+            //
+            for (var i = 0; i < array_length(output.actions); i++) {
+                process_t2_action(output.actions[i], npc_id);
+            }
+        }
+
+        T2R.schedule_end(npc_id);
+    }
+
+    //
+    var npc = NPCS[npc_id];
+    npc.set_animation("idle");
+    npc.activity_handler.reset();
+    npc.simulated_distance_traveled = 0;
+    interrupt_npc(npc);
+
+    //
+    //
+    npc.schedule_name = schedule_name;
+    T2R.schedule_start(npc_id, schedule_name, true);
+
+    //
+    //
+    if finish == false {
+        while true {
+            //
+            if T2R.schedule_current_action_has_arrived(npc_id) == false {
+                var arrival_actions = T2R.schedule_arrived_at_destination(npc_id, time_target);
+                for (var i = 0; i < array_length(arrival_actions); i++) {
+                    process_t2_action(arrival_actions[i], npc_id);
+                }
+            }
+
+            var output = T2R.schedule_execute(npc_id, time_target);
+            if output == undefined {
+                break;
+            }
+
+            //
+            for (var i = 0; i < array_length(output.actions); i++) {
+                process_t2_action(output.actions[i], npc_id);
+            }
+        }
+    }
+
+    //
+    var new_item = T2R.schedule_current_action(npc_id);
+    var start_time = new_item.time;
+    var target = trellis_point_location_position(new_item.point);
+    var departure = T2R.schedule_prior_destination(npc_id);
+    npc.location_position = departure != undefined
+        ? trellis_point_location_position(departure)
+        : target;
+
+    //
+    if npc.location_position.location_id == LocationId.Aldaria {
+        //
+        npc.location_position = roommate_home_position(npc);
+
+        for (var i = 0; i < array_length(ARI.children); i++) {
+            var child = ARI.children[i];
+            if child.location != ChildLocation.WithAri {
+                child.set_location(ChildLocation.WithSpouse);
+                break;
+            }
+        }
+
+        npc.activity_handler.set_routine(string_to_routine(format("{NpcId}_roommate", npc_id)));
+        npc.talk_flag = true;
+    } else {
+        //
+        var itinerary = PATHFINDING.calculate_map_path(npc.location_position, target);
+        start_schedule_pathfind(npc.brain.blackboard, target);
+        simulate_pathfind(npc_id, start_time, time_target, itinerary);
+
+        for (var i = 0; i < array_length(ARI.children); i++) {
+            if ARI.children[i].location == ChildLocation.InCradle {
+                ARI.children[i].set_location(ChildLocation.WithSpouse);
+            }
+        }
+    }
 }

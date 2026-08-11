@@ -79,10 +79,11 @@ function LiveItem(item_id, inner_item) constructor {
             return fmt(base, insert);
         } else if self.infusion != undefined && self.prototype.default_infusion == undefined {
             var adj = INFUSIONS.get(self.infusion).name;
+            var space = local_get_info(LocalInfoRequest.InfusionSpace);
             if local_get_info(LocalInfoRequest.InfusionOrder) == InfusionOrder.Adjective {
-                return format("{Local} {Local}", adj, item_data.name_key);
+                return format("{Local}{}{Local}", adj, space, item_data.name_key);
             } else {
-                return format("{Local} {Local}", item_data.name_key, adj);
+                return format("{Local}{}{Local}", item_data.name_key, space, adj);
             }
         } else if self.item_id == ItemId.Cosmetic {
             return local_get(PLAYER_ANIMATION_DATABASE.player_assets.get(self.cosmetic).name);
@@ -283,6 +284,7 @@ function LiveItem(item_id, inner_item) constructor {
             case ItemUse.UnlockPetCosmetic: return !ari_has_pet_cosmetic_anywhere(self.pet_cosmetic_set_name);
             case ItemUse.UnlockPetSkin: return !ari_has_pet_skin_anywhere(self.prototype.pet_skin_unlock);
             case ItemUse.UnlockDate: return !ARI.date_unlocks[self.prototype.date_unlock] && !any_item_matches(self);
+            case ItemUse.UnlockSong: return !array_has(ARI.song_unlocks, self.prototype.song) && !any_item_matches(self);
             default: return !ARI.annual_item_purchase_bans[self.item_id];
         }
     }

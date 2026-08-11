@@ -18,6 +18,7 @@ function EodMenu() : AnchorMenu(Menu.Eod) constructor {
     self.calendar_day_name = undefined;
     self.calendar_season = undefined;
     self.pilot = self.new_pilot();
+    self.held_point_of_interest = undefined;
 
     function on_close() {
         ANCHOR.free_node(self.sequence_canvas);
@@ -67,7 +68,6 @@ function EodMenu() : AnchorMenu(Menu.Eod) constructor {
             });
 
             ARI.end_of_day_sequence = true;
-            refresh_achievements();
 
             //
             if CLOCK.time < hours(26) {
@@ -96,6 +96,8 @@ function EodMenu() : AnchorMenu(Menu.Eod) constructor {
             var result = sell_shipping_bin_items();
             self.gold_earned = result.gold_earned;
             self.items_sold = result.items_sold;
+
+            refresh_achievements([Requirement.EarnedGold]);
 
             self.renown_earned = ARI.pending_renown_entries.sum_with(renown_entry_value);
 
@@ -153,7 +155,7 @@ function EodMenu() : AnchorMenu(Menu.Eod) constructor {
         self.scroller = create_scroller(
             self.receipt_backplate,
             Vec2(19, 46),
-            Vec2(246, 104),
+            Vec2(246, 102),
         );
         self.scroller.subscribe_to_pilot(self.pilot, 21, 19);
         self.scroller.outline
@@ -300,14 +302,27 @@ function EodMenu() : AnchorMenu(Menu.Eod) constructor {
             .set_align(Align.Center, Align.Middle)
             .set_sprite(spr_ui_eod_summary_backplate)
 
-        ANCHOR.text(self.receipt_backplate)
-            .set_text(fmt(
+        var date = undefined;
+        if local_get_info(LocalInfoRequest.DateOrder) == DateOrder.DayFirst {
+            date = fmt(
                 "{} {}, {} {}",
                 local_get("misc_local/" + season_to_string(CALENDAR.season())),
                 CALENDAR.day() + 1,
                 local_get("misc_local/year"),
                 CALENDAR.year() + 1,
-            ))
+            );
+        } else {
+               date = fmt(
+                "{} {}, {} {}",
+                local_get("misc_local/year"),
+                CALENDAR.year() + 1,
+                local_get("misc_local/" + season_to_string(CALENDAR.season())),
+                CALENDAR.day() + 1,
+            );
+        }
+
+        ANCHOR.text(self.receipt_backplate)
+            .set_text(date)
             .set_align(Align.Center, Align.TopIn)
             .set_y(20)
             .set_lut(COMMON_LUT, CommonLutIndex.Header)
@@ -444,7 +459,7 @@ function EodMenu() : AnchorMenu(Menu.Eod) constructor {
             .set_align(Align.Center, Align.Middle)
             .set_lut(spr_ui_calendar_font_lut, get_seasons(time) + 1)
         self.calendar_day_name = ANCHOR.sprite(self.calendar)
-            .set_sprite(spr_ui_endoftheday_calendar_weekdays_en)
+            .set_sprite(string_to_asset(format("spr_ui_endoftheday_calendar_weekdays_{}", asset_local_insert())))
             .set_index((days(time) % Day.LEN) + 1)
             .set_align(Align.Center, Align.BottomIn)
             .set_y(-15)
@@ -463,7 +478,13 @@ function EodMenu() : AnchorMenu(Menu.Eod) constructor {
         //
         var farm = { location_id: LocationId.Farm, dyn_index: undefined, required_position: undefined };
         var target;
-        if self.goto_special_destination == false {
+        if self.held_point_of_interest != undefined {
+            target = {
+                location_id: self.held_point_of_interest.location_id,
+                dyn_index: self.held_point_of_interest.dyn_index,
+                required_position: self.held_point_of_interest.pos,
+            };
+        } else if self.goto_special_destination == false {
             target = farm;
 
             self.goto_special_destination = !self.valid_destinations.is_empty() ;
@@ -590,6 +611,10 @@ function EodMenu() : AnchorMenu(Menu.Eod) constructor {
                 .join(LinkId.Timer, 12 * 60)
         }
 
+        if self.held_point_of_interest != undefined {
+            return;
+        }
+
         self.life_chain
             .append(LinkId.Ease, new Ease(EaseId.Linear, 0, 1, FADE_SPEED_CUTSCENE), function(_, a) {
                 self.fader.set_alpha(a);
@@ -619,6 +644,8 @@ function EodMenu() : AnchorMenu(Menu.Eod) constructor {
         SCREEN_FADER.fade_out(FADE_SPEED_TRANSITION);
 
         self.has_prepped = true;
+
+        MUSIC_PLAYER.stop();
 
         return new_chain()
             .append(LinkId.Await, function() {
@@ -668,6 +695,30 @@ function EodMenu() : AnchorMenu(Menu.Eod) constructor {
             self.events.push({
                 type: CalendarEvent.DateAvailable,
             })
+        }
+
+        if ARI.wedding_date != undefined
+            && get_seasons(target_date) == get_seasons(ARI.wedding_date)
+            && get_days(target_date) == get_days(ARI.wedding_date)
+        {
+            self.events.push({
+                type: CalendarEvent.Wedding,
+                is_anniversary: get_years(target_date) != get_years(ARI.wedding_date),
+            });
+        }
+
+        for (var i = 0; i < array_length(ARI.children); i++) {
+            var child = ARI.children[i];
+            //
+            if get_seasons(target_date) == get_seasons(child.birthday)
+                && get_days(target_date) == get_days(child.birthday)
+                && get_years(target_date) > get_years(child.birthday)
+            {
+                self.events.push({
+                    type: CalendarEvent.ChildBirthday,
+                    child,
+                });
+            }
         }
 
         for (var i = 0; i < NpcId.LEN; i++) {
@@ -819,6 +870,21 @@ function EodMenu() : AnchorMenu(Menu.Eod) constructor {
                     icon = FESTIVALS[event.festival].prototype.icon;
                     key = FESTIVALS[event.festival].prototype.name;
                     break;
+                case CalendarEvent.Wedding:
+                    icon = spr_ui_calendar_icon_event_wedding;
+                    key = event.is_anniversary
+                        ? "misc_local/your_anniversary"
+                        : "misc_local/your_wedding";
+                    break;
+                case CalendarEvent.ChildBirthday:
+                    icon = event.child.get_small_icon();
+                    key = ANCHOR.wrap_for_local(
+                        format(
+                            local_get("misc_local/birthday_template"),
+                            event.child.name,
+                        )
+                    );
+                    break;
             }
 
 
@@ -865,12 +931,12 @@ function EodMenu() : AnchorMenu(Menu.Eod) constructor {
         LOAD_SEQUENCE.start(
             "misc_local/saving",
             function() {
-                CLOCK.time_stopped = false;
                 with par_animal {
                     instance_destroy();
                 }
 
                 new_day();
+                CLOCK.time_stopped = true; //
 
                 var path = exact_save_path(Game.unique_identifier, false);
                 ARI.save_position = player_wake_position();
@@ -883,6 +949,7 @@ function EodMenu() : AnchorMenu(Menu.Eod) constructor {
                     goto_location_id(ARI.save_position.location_id, true)
                         .set_exact_position(ARI.save_position.pos.x, ARI.save_position.pos.y)
                         .set_arrival_callback(function() {
+                            CLOCK.time_stopped = false;
                             LEAVING_EOD = false;
                             wake_up_sequence();
                         });
@@ -970,5 +1037,7 @@ enum CalendarEvent {
     AriBirthday,
     LegendaryFish,
     DateAvailable,
+    Wedding,
+    ChildBirthday,
     LEN,
 }

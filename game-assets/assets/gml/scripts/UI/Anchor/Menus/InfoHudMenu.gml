@@ -88,7 +88,7 @@ function InfoHudMenu() : AnchorMenu(Menu.InfoHud) constructor {
     self.season_name = ANCHOR.sprite(self.top_backplate, InfoHudDepth.SeasonName)
         .set_xy(-4, 0)
         .set_align(Align.Center, Align.Middle)
-        .set_sprite(spr_ui_hud_season_name_baked_text_english)
+        .set_sprite(string_to_asset(format("spr_ui_hud_season_name_baked_text_{}", asset_local_insert())))
         .enable_day_night_lut()
 
     self.calendar = calendar_widget(self.top_backplate)
@@ -227,6 +227,8 @@ function GoldAnimator(backplate, text, adder, width_getter) constructor {
         }
     })
 
+    //
+    //
     //
     //
     //

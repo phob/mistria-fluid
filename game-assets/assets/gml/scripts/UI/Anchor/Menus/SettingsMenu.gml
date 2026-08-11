@@ -52,12 +52,6 @@ function SettingsMenu(journal_nodes) : AnchorMenu(Menu.Settings) constructor {
             }
         }
         var nodes = {};
-        //
-        //
-        //
-            //
-            //
-        //
 
         nodes.element = self.element("misc_local/" + key)
             .set_tap_callback(function(tap, key) {
@@ -80,7 +74,7 @@ function SettingsMenu(journal_nodes) : AnchorMenu(Menu.Settings) constructor {
     }
 
     //
-    function slider(key, getter, setter) {
+    function slider(key, getter, setter, sticky_dead_zone) {
         var element = self.element("misc_local/" + key, 32, false);
 
         element.text_label
@@ -89,10 +83,18 @@ function SettingsMenu(journal_nodes) : AnchorMenu(Menu.Settings) constructor {
 
         var range = ANCHOR.nine_slice(element)
             .set_align(Align.Center, Align.BottomIn)
-            .set_y(-8)
+            .set_y(-7)
             .set_size(element.get_width() - 8, 4)
             .set_sprite(spr_ui_journal_settings_slider_range)
             .set_hover_sound(undefined)
+
+        if sticky_dead_zone != undefined {
+            var line = ANCHOR.nine_slice(range)
+                .set_sprite(spr_pixel_nine_slice)
+                .set_color(make_color_rgb(145, 121, 138))
+                .set_align(Align.Center, Align.Middle)
+                .set_size(1, range.get_height() + 4)
+        }
 
         var button = ANCHOR.nine_slice(range)
             .set_sprites_from_key("spr_ui_button")
@@ -105,12 +107,16 @@ function SettingsMenu(journal_nodes) : AnchorMenu(Menu.Settings) constructor {
             .listen_for_hovers()
             .listen_for_taps()
 
+
+
+
         var max_position = range.get_width() - button.get_width();
         position_to_set = clamp((getter() * 100) * range.get_width(), 0, max_position);
         button.set_x(position_to_set);
 
-        button.set_think_callback(function(button, range, getter, setter) {
-            static MOVE_INC = 10;
+        button.set_think_callback(function(button, range, getter, setter, sticky_dead_zone) {
+            var max_position = range.get_width() - button.get_width();
+            var move_inc = max_position / 10;
 
             //
             var request_save = false;
@@ -120,7 +126,7 @@ function SettingsMenu(journal_nodes) : AnchorMenu(Menu.Settings) constructor {
                     ANCHOR.press_and_hold_reader.pressed[InputId.Right]
                     - ANCHOR.press_and_hold_reader.pressed[InputId.Left];
                 if move_sign != 0 {
-                    position_to_set = button.get_x() + MOVE_INC * move_sign;
+                    position_to_set = button.get_x() + move_inc * move_sign;
                     request_save = true;
                 }
             } else if button.in_drag() {
@@ -130,17 +136,23 @@ function SettingsMenu(journal_nodes) : AnchorMenu(Menu.Settings) constructor {
                 request_save = button.blackboard.try_take("drag_token") == true;
             }
 
-            var max_position = range.get_width() - button.get_width();
             if position_to_set != undefined {
                 //
-                if position_to_set < MOVE_INC / 2 {
+                if position_to_set < move_inc / 2 {
                     position_to_set = 0;
-                } else if position_to_set > max_position - (MOVE_INC / 2) {
+                } else if position_to_set > max_position - (move_inc / 2) {
                     position_to_set = max_position;
                 }
                 position_to_set = clamp(position_to_set, 0, max_position);
-                button.set_x(position_to_set);
                 var ratio = position_to_set / max_position;
+
+                if sticky_dead_zone != undefined && is_between(ratio, 0.5 - sticky_dead_zone, 0.5 + sticky_dead_zone) {
+                    ratio = 0.5;
+                    button.set_x(max_position / 2);
+                } else {
+                    button.set_x(position_to_set);
+                }
+
                 setter(ratio);
             } else {
                 button.set_x(max_position * getter());
@@ -149,12 +161,12 @@ function SettingsMenu(journal_nodes) : AnchorMenu(Menu.Settings) constructor {
             if request_save {
                 save_settings();
             }
-        }, [button, range, getter, setter])
+        }, [button, range, getter, setter, sticky_dead_zone])
     }
 
     //
     function button(title_key) {
-        var tab = self.option_scroller.new_element(38);
+        var tab = self.option_scroller.new_element(42);
         ANCHOR.text(tab)
             .set_xy(7, 2)
             .set_align(Align.LeftIn, Align.TopIn)
@@ -308,6 +320,66 @@ function SettingsMenu(journal_nodes) : AnchorMenu(Menu.Settings) constructor {
                 });
         }
 
+        if is_world_room(room())
+            && ARI.spouse() == undefined && ARI.fiance() == undefined
+            && ARI.tutorials_seen[Tutorial.Engagement]
+        {
+            self.checkbox(
+                "disable_break_ups",
+                function(key) {
+                    return ARI.disable_break_ups;
+                },
+                function() {
+                    if !ARI.disable_break_ups {
+                        var popup = popup_creator();
+                        popup.backplate.set_width(240);
+                        popup.add_title("misc_local/disable_break_ups");
+                        popup.add_description("misc_local/disable_break_ups_description");
+                        popup.body_text.set_text_align(TextAlign.Center)
+                        popup.create_button("misc_local/close");
+
+                        popup.create_button("misc_local/confirm", function() {
+                            ARI.disable_break_ups = true;
+                            self.disable_break_up_letters_button.element.set_unlocked(false);
+                        });
+
+                        popup.spawn();
+                    } else {
+                        ARI.disable_break_ups = false;
+                        self.disable_break_up_letters_button.element.set_unlocked(true);
+                    }
+                }
+            );
+
+            self.disable_break_up_letters_button = self.checkbox(
+                "disable_break_up_letters",
+                function(key) {
+                    return ARI.disable_break_up_letters || ARI.disable_break_ups;
+                },
+                function() {
+                    if !ARI.disable_break_up_letters {
+                        var popup = popup_creator();
+                        popup.backplate.set_width(240);
+                        popup.add_title("misc_local/disable_break_up_letters");
+                        popup.add_description("misc_local/disable_break_up_letters_description");
+                        popup.body_text.set_text_align(TextAlign.Center)
+                        popup.create_button("misc_local/close");
+
+                        popup.create_button("misc_local/confirm", function() {
+                            ARI.disable_break_up_letters = true;
+                        });
+
+
+                        popup.spawn();
+                    } else {
+                        ARI.disable_break_up_letters = false;
+                    }
+                }
+            );
+
+            self.disable_break_up_letters_button.element.set_unlocked(!ARI.disable_break_ups);
+        }
+
         self.checkbox("rumble");
         self.checkbox("twenty_four_hour_clock");
         self.checkbox("show_hud_numbers", undefined, function() {
@@ -324,146 +396,99 @@ function SettingsMenu(journal_nodes) : AnchorMenu(Menu.Settings) constructor {
         }
 
         self.checkbox("send_analytics");
+        self.checkbox("asymptote",
+            function() {
+                return SETTINGS.get("asymptote");
+            },
+            function() {
+                SETTINGS.set("asymptote", !SETTINGS.get("asymptote"));
+                CAMERA.asymptote = !CAMERA.asymptote;
+                save_settings();
+            }
+        );
     });
 
-    self.categories.display = self.create_category("display", function() {
-        if !ON_CONSOLE {
-            var display = self.display_mode_key();
-            self.display_mode_button = self.button("display_mode")
-                .add_text_label(display, COMMON_LUT, CommonLutIndex.Dark)
-                .set_tap_callback(function() {
-                    static LIST = ListFromArray([
-                        "misc_local/windowed",
-                        "misc_local/fullscreen",
-                        "misc_local/borderless"
-                    ]);
+    self.categories.display = self.create_category("graphics", function() {
+        var display = self.display_mode_key();
+        self.display_mode_button = self.button("display_mode")
+            .add_text_label(display, COMMON_LUT, CommonLutIndex.Dark)
+            .set_tap_callback(function() {
+                static LIST = ListFromArray([
+                    "misc_local/windowed",
+                    "misc_local/fullscreen",
+                    "misc_local/borderless"
+                ]);
 
-                    create_options_popup(
-                        "misc_local/choose_display_mode",
-                        LIST,
-                        function(e) {
-                            return local_get(e);
-                        },
-                        function(e) {
-                            if e == "misc_local/windowed" {
-                                DISPLAY.set_windowed(
-                                    SETTINGS.get("window_x"),
-                                    SETTINGS.get("window_y"),
-                                    SETTINGS.get("window_expansion"),
-                                );
-                                SETTINGS.set("open_fscreen", 0);
-                                self.resolution_button.unlock();
-                            } else {
-                                var borderless = e == "misc_local/borderless";
-                                SETTINGS.set("borderless_fullscreen", borderless);
+                create_options_popup(
+                    "misc_local/choose_display_mode",
+                    LIST,
+                    function(e) {
+                        return local_get(e);
+                    },
+                    function(e) {
+                        if e == "misc_local/windowed" {
+                            DISPLAY.set_windowed(
+                                SETTINGS.get("window_x"),
+                                SETTINGS.get("window_y"),
+                                SETTINGS.get("window_expansion"),
+                            );
+                            SETTINGS.set("open_fscreen", 0);
+                            self.resolution_button.unlock();
+                        } else {
+                            var borderless = e == "misc_local/borderless";
+                            SETTINGS.set("borderless_fullscreen", borderless);
 
-                                DISPLAY.set_fullscreen(SETTINGS.get("fscreen_expansion"), borderless);
-                                SETTINGS.set("open_fscreen", 1);
+                            DISPLAY.set_fullscreen(SETTINGS.get("fscreen_expansion"), borderless);
+                            SETTINGS.set("open_fscreen", 1);
 
-                                self.resolution_button.lock();
-                            }
+                            self.resolution_button.lock();
+                        }
 
-                            var output_size = window_get_output_dimensions();
-                            self.resolution_button.text_label.set_text(self.format_resolution(Vec2(output_size[0], output_size[1])));
-                            self.display_mode_button.text_label.set_key(self.display_mode_key());
-                            self.scale_button.text_label.set_text(self.format_expansion(DISPLAY.expansion));
-                        },
-                        self.new_pilot(),
-                    );
-                })
+                        var output_size = window_get_output_dimensions();
+                        self.resolution_button.text_label.set_text(self.format_resolution(Vec2(output_size[0], output_size[1])));
+                        self.display_mode_button.text_label.set_key(self.display_mode_key());
+                        self.scale_button.text_label.set_text(self.format_expansion(DISPLAY.expansion));
+                    },
+                    self.new_pilot(),
+                );
+            })
 
-            self.checkbox(
-                "vsync",
-                function(key) {
-                    return display_get_vsync();
-                },
-                function() {
-                    var new_value = !display_get_vsync();
-                    display_set_vsync(new_value);
-                    SETTINGS.set("vsync", new_value);
-                }
-            );
+        var output_size = window_get_output_dimensions();
+        var default_display = self.format_resolution(Vec2(output_size[0], output_size[1]));
+        self.resolution_button = self.button("resolution")
+            .add_text_label(ANCHOR.wrap_for_local(default_display), COMMON_LUT, CommonLutIndex.Dark)
+            .set_unlocked(!window_is_fullscreen())
+            .set_tap_callback(function() {
+                //
+                var list = DISPLAY.window_sizes();
+                list.retain(function(e) {
+                    return e.can_use;
+                });
+                list.map(function(e) {
+                    return e.size;
+                });
 
-            var output_size = window_get_output_dimensions();
-            var default_display = self.format_resolution(Vec2(output_size[0], output_size[1]));
-            self.resolution_button = self.button("resolution")
-                .add_text_label(ANCHOR.wrap_for_local(default_display), COMMON_LUT, CommonLutIndex.Dark)
-                .set_unlocked(!window_is_fullscreen())
-                .set_tap_callback(function() {
-                    //
-                    var list = DISPLAY.window_sizes();
-                    list.retain(function(e) {
-                        return e.can_use;
-                    });
-                    list.map(function(e) {
-                        return e.size;
-                    });
-
-                    create_options_popup(
-                        "misc_local/choose_a_resolution",
-                        list,
-                        self.format_resolution,
-                        function(e) {
-                            SETTINGS.set("window_x", e.x);
-                            SETTINGS.set("window_y", e.y);
-                            SETTINGS.set("window_expansion", 0);
-                            var menu = ANCHOR.get_menu(Menu.Title);
-                            if menu != undefined {
-                                menu.refresh_expansion();
-                            }
-                            DISPLAY.set_windowed(e.x, e.y, 0);
-                            var display = self.format_resolution(e);
-                            self.resolution_button.text_label.set_text(display);
-                            var ex = SETTINGS.get(window_is_fullscreen() ? "fscreen_expansion" : "window_expansion");
-                            self.scale_button.text_label.set_text(self.format_expansion(ex));
-                        },
-                        self.new_pilot(),
-                    );
-                })
-
-            self.checkbox(
-                "native_cursor",
-                function(key) {
-                    return SETTINGS.get(key);
-                },
-                function() {
-                    var new_value = !SETTINGS.get("native_cursor");
-                    CURSOR.render_strategy = new_value ? CursorRender.Software : CursorRender.OnGpu;
-                    //
-                    //
-                    window_hide_cursor();
-
-                    SETTINGS.set("native_cursor", new_value);
-                }
-            );
-
-            self.checkbox(
-                "snap_frame_rate",
-                function(key) {
-                    return SETTINGS.get(key);
-                },
-                function() {
-                    if SETTINGS.get("snap_frame_rate") {
-                        //
-                        var popup = popup_creator("misc_local/snap_frame_rate", "misc_local/snap_frame_rate_body");
-                        popup.body_text.set_text_align(TextAlign.Center)
-                        popup.create_button("misc_local/close");
-
-                        popup.create_button("misc_local/disable", function() {
-                            SETTINGS.set("snap_frame_rate", false);
-                            snap_frame_rate(false);
-                            save_settings();
-                        });
-
-                        popup.spawn();
-                    } else {
-                        SETTINGS.set("snap_frame_rate", true);
-                        snap_frame_rate(true);
-                        save_settings();
-                    }
-                }
-            );
-        }
+                create_options_popup(
+                    "misc_local/choose_a_resolution",
+                    list,
+                    self.format_resolution,
+                    function(e) {
+                        SETTINGS.set("window_x", e.x);
+                        SETTINGS.set("window_y", e.y);
+                        SETTINGS.set("window_expansion", 0);
+                        var menu = ANCHOR.get_menu(Menu.Title);
+                        if menu != undefined {
+                            menu.refresh_expansion();
+                        }
+                        DISPLAY.set_windowed(e.x, e.y, 0);
+                        var display = self.format_resolution(e);
+                        self.resolution_button.text_label.set_text(display);
+                        var ex = SETTINGS.get(window_is_fullscreen() ? "fscreen_expansion" : "window_expansion");
+                        self.scale_button.text_label.set_text(self.format_expansion(ex));
+                    },
+                    self.new_pilot(),
+                );
+            })
 
         var e = SETTINGS.get(window_is_fullscreen() ? "fscreen_expansion" : "window_expansion");
         self.scale_button = self.button("in_game_scale")
@@ -496,13 +521,104 @@ function SettingsMenu(journal_nodes) : AnchorMenu(Menu.Settings) constructor {
                 )
             });
 
-        self.checkbox("asymptote",
+        self.vsync_button = self.button("vsync")
+            .add_text_label(format("misc_local/vsync_{Vsync}", display_get_vsync()), COMMON_LUT, CommonLutIndex.Dark)
+            .set_tap_callback(function() {
+                var popup = create_options_popup(
+                    "misc_local/choose_a_vsync",
+                    List(Vsync.Off, Vsync.On, Vsync.Adaptive),
+                    function(v) {
+                        return local_get(format("misc_local/vsync_{Vsync}", v));
+                    },
+                    function(vsync) {
+                        display_set_vsync(vsync);
+                        self.vsync_button.text_label.set_text(local_get(format("misc_local/vsync_{Vsync}", vsync)));
+                        SETTINGS.set("vsync", vsync);
+                        save_settings();
+                    },
+                    self.new_pilot(),
+                    1,
+                );
+                popup.buttons.last().set_soft_locked(!display_can_adaptive_vsync());
+            });
+
+        self.slider(
+            "brightness",
             function() {
-                return SETTINGS.get("asymptote");
+                return SETTINGS.get("gamma_slider");
+            },
+            function(value) {
+                SETTINGS.set("gamma_slider", value);
+                gpu_set_gamma_scale(value);
+            },
+            0.09,
+        );
+        self.slider(
+            "saturation",
+            function() {
+                return SETTINGS.get("saturation_slider");
+            },
+            function(value) {
+                SETTINGS.set("saturation_slider", value);
+                gpu_set_saturation_scale(value);
+            },
+            0.09,
+        );
+
+        self.checkbox(
+            "frame_rate_cap",
+            function(key) {
+                return SETTINGS.get(key);
             },
             function() {
-                SETTINGS.set("asymptote", !SETTINGS.get("asymptote"));
-                CAMERA.asymptote = !CAMERA.asymptote;
+                var new_value = !SETTINGS.get("frame_rate_cap");
+                SETTINGS.set("frame_rate_cap", new_value);
+                display_set_frame_cap(new_value);
+                save_settings();
+            }
+        );
+
+        self.checkbox(
+            "snap_frame_rate",
+            function(key) {
+                return SETTINGS.get(key);
+            },
+            function() {
+                if SETTINGS.get("snap_frame_rate") {
+                    //
+                    var popup = popup_creator("misc_local/snap_frame_rate", "misc_local/snap_frame_rate_body");
+                    popup.body_text.set_text_align(TextAlign.Center)
+                    popup.create_button("misc_local/close");
+
+                    popup.create_button("misc_local/disable", function() {
+                        SETTINGS.set("snap_frame_rate", false);
+                        snap_frame_rate(false);
+                        save_settings();
+                    });
+
+                    popup.spawn();
+                } else {
+                    SETTINGS.set("snap_frame_rate", true);
+                    snap_frame_rate(true);
+                    save_settings();
+                }
+            }
+        );
+
+        self.checkbox(
+            "native_cursor",
+            function(key) {
+                return SETTINGS.get(key);
+            },
+            function() {
+                var new_value = !SETTINGS.get("native_cursor");
+                CURSOR.render_strategy = new_value ? CursorRender.Software : CursorRender.OnGpu;
+                //
+                //
+                window_hide_cursor();
+
+                SETTINGS.set("native_cursor", new_value);
+                save_settings();
             }
         );
     });
@@ -657,7 +773,7 @@ function SettingsMenu(journal_nodes) : AnchorMenu(Menu.Settings) constructor {
                             var unstuck = LOCATIONS[CURRENT_LOCATION_ID].safe_position;
                             if unstuck != undefined {
                                 obj_ari.x = unstuck[0];
-                                obj_ari.y = unstuck[1];                            
+                                obj_ari.y = unstuck[1];
                             }
                         }
                     });
@@ -873,7 +989,7 @@ function SettingsMenu(journal_nodes) : AnchorMenu(Menu.Settings) constructor {
 
                     var binding = BINDINGS.get_binding(input_id, slot);
                     if binding == undefined {
-                        popup.glyph.set_sprite(spr_ui_generic_keyboard_keys);
+                        popup.glyph.set_sprite(big_keyboard_keys_sprite());
                         popup.glyph.set_index(0);
                     } else {
                         var display = get_display_for_keycode(binding.keycode);
@@ -893,7 +1009,7 @@ function SettingsMenu(journal_nodes) : AnchorMenu(Menu.Settings) constructor {
             glyph.set_think_callback(function(glyph, input_id, slot) {
                 var binding = BINDINGS.get_binding(input_id, slot);
                 if binding == undefined {
-                    glyph.set_sprite(spr_ui_generic_keyboard_keys);
+                    glyph.set_sprite(big_keyboard_keys_sprite());
                     glyph.set_index(0);
                 } else if self.rebinding_for_kbm || !input_forbidden_on_gamepad(input_id) {
                     var display = get_display_for_keycode(binding.keycode);
@@ -936,7 +1052,7 @@ function SettingsMenu(journal_nodes) : AnchorMenu(Menu.Settings) constructor {
                                     BINDINGS = saved_bindings_to_bindings(SETTINGS.get("bindings"));
                                     break;
                                 case "nintendo":
-                                    SETTINGS.set("bindings", default_input_id_bindings(os_switch));
+                                    SETTINGS.set("bindings", default_input_id_bindings("switch"));
                                     BINDINGS = saved_bindings_to_bindings(SETTINGS.get("bindings"));
                                     break;
                                 default: impossible("unexpected new layout");
@@ -1018,6 +1134,14 @@ function SettingsMenu(journal_nodes) : AnchorMenu(Menu.Settings) constructor {
             true,
             font,
         );
+
+        if key != "eng" {
+            var beta_tag = ANCHOR.sprite(element)
+                .set_sprite(spr_ui_load_save_icon_beta)
+                .set_align(Align.RightIn, Align.Middle)
+                .set_x(-4)
+        }
+
         element.set_tap_callback(function(element, key) {
             if !element.is_selected() {
                 local_set_language(key);
@@ -1025,6 +1149,15 @@ function SettingsMenu(journal_nodes) : AnchorMenu(Menu.Settings) constructor {
 			    ANCHOR.language_refresh();
 
                 save_settings();
+                if key != "eng" {
+                    var popup = popup_creator();
+                    popup.backplate.add_width(170);
+                    popup.add_title("misc_local/beta_language_title");
+                    popup.add_description("misc_local/beta_language_description");
+                    popup.body_text.set_text_align(TextAlign.Center);
+                    popup.create_button("misc_local/close");
+                    popup.spawn();
+                }
             }
         }, [element, key]);
         element.set_selected_getter(function(key) {
@@ -1035,7 +1168,7 @@ function SettingsMenu(journal_nodes) : AnchorMenu(Menu.Settings) constructor {
         return element;
     }
 
-    if ALL_LANGUAGES && is_menu_room(room()) {
+    if is_menu_room(room()) || DEBUG_TOOLS {
         self.categories.language = self.create_category("language", function() {
             var languages = local_get_all_languages();
             for (var i = 0; i < array_length(languages); i++) {

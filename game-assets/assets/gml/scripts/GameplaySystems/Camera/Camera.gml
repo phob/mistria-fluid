@@ -305,6 +305,7 @@ function Camera(_view_x, _view_y) constructor {
         }
         instance_deactivate_object(obj_node_renderer);
         instance_deactivate_object(obj_assetobject);
+        instance_deactivate_object(obj_grass_backing);
 
         var region = get_cull_region();
 

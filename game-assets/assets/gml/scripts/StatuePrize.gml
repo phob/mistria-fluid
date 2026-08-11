@@ -31,9 +31,7 @@ function parse_statue_rewards(fiddle_root) {
         static PARSE = function(v) {
             return {
                 reward: parse_reward(v),
-                requirements: v[$ "requirements"] != undefined
-                    ? parse_requirements(v.requirements)
-                    : array_create(Requirement.LEN, undefined)
+                requirements: parse_requirements(v[$ "requirements"] ?? {}),
             };
         }
 

@@ -53,6 +53,8 @@ function QuestLog() constructor {
             ARI.pending_renown_entries.push(RenownEntry.Quest(quest_name));
         }
 
+        refresh_achievements([Requirement.CompletedQuest, Requirement.CompletedQuestsInCategory]);
+
         return finished_quest;
     }
 }
@@ -200,7 +202,7 @@ function ActiveQuest(quest, quest_name, current_stage=0) constructor {
             QUEST_LOG.complete(self.quest_name);
 
             if self.quest.reward_list.is_empty() {
-                var raw = format("{Local}: {Local}", "misc_local/quest_completed", self.quest.name);
+                var raw = format("{Local}:\n{Local}", "misc_local/quest_completed", self.quest.name);
                 create_notification(ANCHOR.wrap_for_local(raw));
             } else {
                 await_popup(create_quest_complete_popup, [self]);
@@ -265,6 +267,14 @@ function ActiveQuest(quest, quest_name, current_stage=0) constructor {
                         );
                     }
                     break;
+                case Requirement.DefeatedMonster:
+                    for (var j = 0; j < array_length(requirement); j++) {
+                        self.blackboard.insert(
+                            format("{MonsterCategory}_needed", requirement[j][0]),
+                            ARI.monsters_killed(requirement[j][0]) + requirement[j][1],
+                        );
+                    }
+                    break;
             }
         }
     }
@@ -291,6 +301,14 @@ function fulfills_all_requirements(requirements, quest_blackboard) {
                 for (var j = 0; j < array_length(requirement); j++) {
                     var this_item = requirement[j];
                     if ARI.items_sold[this_item[0]] < quest_blackboard.get(format("{ItemId}_needed", this_item[0])) {
+                        return false;
+                    }
+                }
+                break;
+            case Requirement.DefeatedMonster:
+                for (var j = 0; j < array_length(requirement); j++) {
+                    var this_cat = requirement[j];
+                    if ARI.monsters_killed(this_cat[0]) < quest_blackboard.get(format("{MonsterCategory}_needed", this_cat[0])) {
                         return false;
                     }
                 }

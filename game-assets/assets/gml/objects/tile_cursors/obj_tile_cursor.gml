@@ -251,7 +251,7 @@ object_create(
                         1,
                         1,
                         0,
-                        c_black,
+                        self.image_blend,
                         shadow_alpha,
                     );
                 } else {
@@ -520,6 +520,38 @@ object_create(
                             my_caster[ShadowCasterField.ImageXScale] = cursor_data.part_x;
                             my_caster[ShadowCasterField.ImageYScale] = cursor_data.part_y;
                         }
+
+                        //
+                        if furniture_draw_data.render_arrow != undefined {
+                            var render_points = furniture_arrow_offset(
+                                furniture_draw_data.render_arrow,
+                                furniture_draw_data.top_left_x,
+                                furniture_draw_data.top_left_y,
+                                furniture_draw_data.bot_right_x,
+                                furniture_draw_data.bot_right_y,
+                            );
+
+                            var my_caster;
+                            if self.extra_shadow_casters.count() <= self.extra_casters_to_draw {
+                                var new_caster = create_shadow_caster(render_points[1], render_points[2]);
+                                self.extra_shadow_casters.push(new_caster);
+                                my_caster = new_caster;
+                            } else {
+                                my_caster = self.extra_shadow_casters.get(self.extra_casters_to_draw);
+                            }
+
+                            my_caster[ShadowCasterField.SpriteIndex] = SHADOW_DICTIONARY.get(render_points[0]);
+                            my_caster[ShadowCasterField.ImageIndex] = 0;
+                            my_caster[ShadowCasterField.WorldX] = render_points[1];
+                            my_caster[ShadowCasterField.WorldY] = render_points[2];
+
+                            //
+                            my_caster[ShadowCasterField.ImageXScale] = 0;
+                            my_caster[ShadowCasterField.ImageYScale] = 0;
+
+                            //
+                            self.extra_casters_to_draw += 1;
+                        }
                     }
 
                     self.top_line_renderer.valid = furniture_draw_data.is_valid;
@@ -527,6 +559,12 @@ object_create(
                     self.top_line_renderer.splotch_data = furniture_draw_data.splotch_data;
                     self.top_line_renderer.x = furniture_draw_data.x_off;
                     self.top_line_renderer.y = furniture_draw_data.y_off;
+
+                    self.top_line_renderer.render_arrow = furniture_draw_data.render_arrow;
+                    self.top_line_renderer.top_left_x = furniture_draw_data.top_left_x;
+                    self.top_line_renderer.top_left_y = furniture_draw_data.top_left_y;
+                    self.top_line_renderer.bot_right_x = furniture_draw_data.bot_right_x;
+                    self.top_line_renderer.bot_right_y = furniture_draw_data.bot_right_y;
 
                     //
                     if self.furniture_renderer.on_floor {

@@ -40,6 +40,8 @@ enum AnimationSlot {
     BackGear,
     HairFront,
     HeadGearBack,
+    LegsTop,
+    BabyBack,
 
     LEN
 }

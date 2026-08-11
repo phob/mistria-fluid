@@ -4,6 +4,16 @@ enum CameoState {
     LEN,
 }
 
+function cameo_id_to_gm_obj_id(cameo) {
+    switch cameo {
+        case CameoId.Linnet: return object("obj_linnet");
+        case CameoId.Wiscar: return object("obj_wiscar");
+        case CameoId.Darren: return object("obj_darren");
+        case CameoId.Wynne: return object("obj_wynne");
+        default: IMPOSSIBLE("Unexpected cameo: {CameoId}", cameo);
+    }
+}
+
 object_create(
     "obj_cameo",
     undefined,
@@ -180,3 +190,9 @@ object_create(
         },
     }
 );
+
+
+object_create("obj_linnet", object_reserve("obj_cameo"), {});
+object_create("obj_wiscar", object_reserve("obj_cameo"), {});
+object_create("obj_darren", object_reserve("obj_cameo"), {});
+object_create("obj_wynne", object_reserve("obj_cameo"), {});

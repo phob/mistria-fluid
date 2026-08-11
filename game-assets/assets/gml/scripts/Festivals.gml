@@ -45,7 +45,7 @@ function load_festivals() {
                 //
                 return {
                     item: parse_store_item(e),
-                    requirements: e[$ "requirements"] != undefined ? parse_requirements(e.requirements) : [],
+                    requirements: parse_requirements(e[$ "requirements"] ?? {}),
                     tier_required: e.tier_required,
                     has_unlocked_animal: opt_and_then(e[$ "has_unlocked_animal"], string_to_animal_kind),
                 };
@@ -121,7 +121,7 @@ function Festival(id, prototype) constructor {
     }
 
     //
-    function room_start() {
+    function build_layers() {
 
         //
         if !self.prototype.implemented|| !self.is_today() {
@@ -151,11 +151,6 @@ function Festival(id, prototype) constructor {
         }
 
         //
-        if MIST.is_running() {
-            return;
-        }
-
-        //
         for (var i = 0; i < array_length(self.prototype.challenges); i++) {
             var challenge = self.prototype.challenges[i];
             var artifact = ARI.quest_artifacts.get(challenge.artifact_key);
@@ -166,14 +161,6 @@ function Festival(id, prototype) constructor {
             //
             for (var j = 0; j <= artifact.last_tier; j++) {
                 var tier = challenge.tier_results[j];
-
-                //
-                //
-                if QUEST_LOG.active.contains_key(self.prototype.associated_quest)
-                    && j == artifact.last_tier
-                {
-                    MIST.spawn_trigger(tier.cutscene);
-                }
 
                 if tier.asset_layer != undefined  {
                     process_asset_layer(layer_get_id(tier.asset_layer));
@@ -199,6 +186,40 @@ function Festival(id, prototype) constructor {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    //
+    function room_start() {
+
+        //
+        if !self.prototype.implemented|| !self.is_today() {
+            return;
+        }
+
+        //
+        if CURRENT_LOCATION_ID != self.prototype.location {
+            return;
+        }
+
+        //
+        if MIST.is_running() {
+            return;
+        }
+
+        //
+        for (var i = 0; i < array_length(self.prototype.challenges); i++) {
+            var challenge = self.prototype.challenges[i];
+            var artifact = ARI.quest_artifacts.get(challenge.artifact_key);
+            if artifact == undefined {
+                continue;
+            }
+
+            //
+            //
+            if QUEST_LOG.active.contains_key(self.prototype.associated_quest) {
+                MIST.spawn_trigger(challenge.tier_results[artifact.last_tier].cutscene);
             }
         }
 
@@ -379,6 +400,13 @@ function Festival(id, prototype) constructor {
 function festival_room_start() {
     for (var i = 0; i < FestivalId.LEN; i++) {
         FESTIVALS[i].room_start();
+    }
+}
+
+//
+function festival_build_layers() {
+    for (var i = 0; i < FestivalId.LEN; i++) {
+        FESTIVALS[i].build_layers();
     }
 }
 

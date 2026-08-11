@@ -20,6 +20,7 @@ function new_day_non_grid() {
     Game.animal_eat = false;
     Game.prevent_eod_music_stop = false;
     CANCEL_FESTIVALS = false;
+    clear_loaded_date_photos();
 
     if PENDING_DAY_TIME_SPEED_CHANGE != undefined {
         MINUTES_PER_DAY = fiddle_get(format("misc/{DayTimeSpeed}_minutes_per_day", PENDING_DAY_TIME_SPEED_CHANGE));
@@ -32,6 +33,7 @@ function new_day_non_grid() {
         npcs_time_jump(hours(26), CLOCK.time, true);
     }
 
+    //
     //
     var new_day_result = CALENDAR.increment_day();
     if new_day_result != NewDayResult.NormalDay {
@@ -178,6 +180,14 @@ function new_day_non_grid() {
 
     npcs_on_new_day();
 
+    var spouse = ARI.spouse();
+    for (var i = 0; i < array_length(ARI.children); i++) {
+        var child = ARI.children[i];
+        if NPCS[spouse].held_child() == undefined {
+            child.set_location(ChildLocation.WithSpouse);
+        }
+    }
+
     //
     ARI.inbox.on_new_day();
 
@@ -212,7 +222,7 @@ function new_day_non_grid() {
     npas_new_day();
 
     MIST.scenes_played_today.clear();
-    refresh_achievements();
+    refresh_achievements([Requirement.HasChildAtAge]);
 }
 
 //
@@ -229,6 +239,13 @@ function new_day_grid() {
         grid.new_day();
         ARCHAEOLOGY.spawn_dig_sites(grid);
         FORAGEABLES.spawn_forageables(grid);
+    }
+
+    if world_mod_enabled(WorldMod.TownPlaza) {
+        spawn_prios_on_map(GRIDS[LocationId.Town], location_id_to_gm_room(LocationId.Town), "PriorityObjectsPlazaFixed", spawn_priority_object, true);
+    } else {
+        spawn_prios_on_map(GRIDS[LocationId.Town], location_id_to_gm_room(LocationId.Town), "PriorityObjectsPlazaBroken", spawn_priority_object, true);
+        spawn_prios_on_map(GRIDS[LocationId.Town], location_id_to_gm_room(LocationId.Town), "PriorityGrassPlazaBroken", spawn_priority_grass, true);
     }
 
     for (var i = 0, ic = FACTORIES.count(); i < ic; i++) {

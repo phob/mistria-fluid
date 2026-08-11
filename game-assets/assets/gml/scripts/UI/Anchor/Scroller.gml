@@ -46,7 +46,6 @@ function Scroller(parent, canvas_pos, canvas_size, canvas_align, scroll_bar_pos,
     function new_header(icon, title, height=20) {
         var header = self.new_element(height);
         header.set_sprites_from_key("spr_ui_generic_box_category");
-        header.z_mod = -0.1;
 
         header.icon_node = ANCHOR.sprite(header)
             .set_sprite(icon)
@@ -54,7 +53,7 @@ function Scroller(parent, canvas_pos, canvas_size, canvas_align, scroll_bar_pos,
             .set_x(4)
 
         ANCHOR.text(header.icon_node)
-            .set_xy(3, 1)
+            .set_x(3)
             .set_align(Align.RightOut, Align.Middle)
             .set_key(title)
             .set_lut(spr_ui_cooking_text_lut, 12)

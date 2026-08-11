@@ -27,6 +27,15 @@ object_create(
                 InputId.Interact,
                 "misc_local/inspect",
                 function() {
+                    if ARI.animal_variant_unlocks[AnimalKind.Horse].contains("giant_chicken_white") == false
+                        && ARI.unlocked_all_chicken_tiers()
+                        && any_item_matches(ItemId.BigEgg) == false
+                    {
+                        play_conversation_from_path(NpcId.Caldarus, GAMEPLAY_CONVERSATIONS[GpTriggeredConversation.ChickenStatueEgg]);
+
+                        return;
+                    }
+
                     var currency_amount = ARI.inventory.item_id_quantity(ItemId.AnimalCurrency);
                     var convo = currency_amount == 0 ? GpTriggeredConversation.ChickenStatueNoCurrency : GpTriggeredConversation.ChickenStatueHasCurrency;
                     var callback = undefined;
@@ -65,6 +74,33 @@ object_create(
             );
 
             depth = get_instance_depth(y);
+        },
+        draw_end: function() {
+            if ARI.animal_variant_unlocks[AnimalKind.Horse].contains("giant_chicken_white")
+                || ARI.unlocked_all_chicken_tiers() == false
+                || game_paused()
+                || self.image_speed != 0
+                || any_item_matches(ItemId.BigEgg)
+            {
+                return;
+            }
+
+
+            self.bouncer.status = InteractBounceStatus.Distant;
+            self.bouncer.alpha = approach(self.bouncer.alpha, BARK_MIN_ALPHA, BARK_FADE_SPEED);
+
+            var is_being_selected = self.bouncer.update();
+
+            var offset_x = 0;
+            var offset_y = -29;
+
+            if is_being_selected {
+                draw_sprite_ext(spr_ui_interact_bubble_big, 0, x + offset_x, y + offset_y + self.bouncer.offset, 1, 1, 0, c_white, self.bouncer.alpha);
+                draw_sprite_ext(spr_ui_bark_icon_chicken, 0, x + offset_x, y + offset_y + self.bouncer.offset, 1, 1, 0, c_white, self.bouncer.alpha);
+            } else {
+                draw_sprite_ext(spr_ui_interact_bubble_small, 0, x + offset_x, y + offset_y + 1 + self.bouncer.offset, 1, 1, 0, c_white, self.bouncer.alpha);
+                draw_sprite_ext(spr_ui_bark_icon_chicken_small, 0, x + offset_x, y + offset_y + 1 + self.bouncer.offset, 1, 1, 0, c_white, self.bouncer.alpha);
+            }
         },
         animation_end: function() {
             self.sprite_index = self.off_sprite;

@@ -83,8 +83,7 @@ function patch_game_stats(game_stats) {
 
     //
     var prototype = GameStats();
-    patch_object(prototype, game_stats);
-
+    apply_defaults(game_stats, prototype);
 
     //
     PATCH(game_stats, "perks", Perk.LEN, perk_to_string);
@@ -95,7 +94,6 @@ function patch_game_stats(game_stats) {
     for (var i = array_length(game_stats.income) - 1; i >= 0; i--) {
         if game_stats.income[i] == 0 {
             array_delete(game_stats.income, i, 1);
-            i -= 1;
         }
     }
 }
@@ -222,9 +220,7 @@ function game_stats_get_income_total() {
     var amount = 0;
     for (var i = 0, c = array_length(GAME_STATS.income); i < c; i++;) {
         var income = GAME_STATS.income[i];
-        if income.type == "sold_items" {
-            amount += income.amount;
-        }
+        amount += income.amount;
     }
     return amount;
 }

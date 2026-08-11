@@ -1,6 +1,7 @@
 //
 function new_game(_baby) {
     var start_time = get_timer();
+    CHECK_ACHIEVEMENTS = false
 
     CREATION_VERSION = clone_value(GAME_VERSION);
 
@@ -91,6 +92,7 @@ function new_game(_baby) {
     //
     SECRET_NARROWS = 0;
     SECRET_BEACH = 0;
+    SECRET_TOWER = 0;
 
     //
     REQUEST_BOARD = create_request_board();
@@ -108,8 +110,10 @@ function new_game(_baby) {
             }
         }
         DECOR.apply_house_upgrade(GRIDS[LocationId.PlayerHome], HomeUpgrade.LargeWestEast);
+        DECOR.variant = HomeVariant.AdobeOne;
         ARI.inventory.resize(30);
-        ARI.mount = create_default_mount();
+        ARI.disable_break_ups = true;
+        ARI.mount = create_default_mount("giant_chicken_white");
         var inventory = fiddle_get("misc/ari_stats/starting_inventory_test_mode");
         for (var i = 0; i < array_length(inventory); i++) {
             ARI.inventory.add(string_to_item_id(inventory[i]));
@@ -129,9 +133,9 @@ function new_game(_baby) {
         for (var i = 0; i < Skill.LEN; i++) {
             ARI.skill_xp[i] = MAX_SKILL_LEVEL_COSTS[i];
         }
-        ARI.perks = array_create(Perk.LEN, true);
-        ARI.perks_active = array_create(Perk.LEN, true);
-        ARI.ancient_inspiration_time = undefined;
+        for (var i = 0; i < Perk.LEN; i++) {
+            ARI.acquire_perk(i);
+        }
         for (var i = 0; i < AnimalKind.LEN; i++) {
             var animal = ANIMAL_PROTOTYPES[i];
             var unlocks = HashSetFromArray(animal.variants.keys());
@@ -149,15 +153,26 @@ function new_game(_baby) {
             }
             ARI.items_sold[i] = 999;
         }
+        ARI.build_almanac_items_remaining();
         ARI.cosmetic_unlocks = HashSetFromArray(PLAYER_ANIMATION_DATABASE.player_assets.keys());
         ARI.seen_cosmetics = HashSetFromArray(PLAYER_ANIMATION_DATABASE.player_assets.keys());
         ARI.pet_cosmetic_sets_unlocked = PET_PROTOTYPE.cosmetic_sets.keys();
         ARI.legendary_fish_caught = array_create(Season.LEN, true);
         ARI.date_unlocks = array_create(Date.LEN, true);
+        ARI.song_unlocks = struct_get_names(SONGS);
+        ARI.bell_sound = "school_bell";
 
         //
         ARI.wedding_date = -seasons(1);
         ARI.proposal_date = -seasons(1) - days(3);
+
+        var rune = new Child(
+            ChildId.Rune,
+            seasons(Season.Winter) + days(26),
+            ChildSkinTone.Lighter,
+        );
+        rune.location = ChildLocation.InCradle;
+        array_push(ARI.children, rune);
 
         var variant_keys = PET_PROTOTYPE.variants.keys();
         for (var i = 0; i < array_length(variant_keys); i++) {
@@ -230,6 +245,7 @@ function new_game(_baby) {
         erase_object_node(grid, grid.node_index_for_cell(13, 13));
         grid.write_node_without_initializing(10, 13, ObjectId.BasicDoubleBedWalnut, Cardinal.South);
         ARI.last_bed_used = all_player_beds().first();
+        grid.write_node_without_initializing(35, 13, ObjectId.BabyCradle, Cardinal.South);
 
         MAXIMUM_REACHED_DUNGEON_LEVEL = 100;
         ARI.renown = 100000000;
@@ -242,6 +258,7 @@ function new_game(_baby) {
 
         SECRET_NARROWS = 3;
         SECRET_BEACH = 3;
+        SECRET_TOWER = 1;
         DECOR.upper_floor = true;
     } else {
         //
@@ -277,6 +294,15 @@ function new_game(_baby) {
         MAXIMUM_REACHED_DUNGEON_LEVEL = 0;
     }
 
+    //
+    if world_mod_enabled(WorldMod.TownPlaza) {
+        spawn_prios_on_map(GRIDS[LocationId.Town], location_id_to_gm_room(LocationId.Town), "PriorityObjectsPlazaFixed", spawn_priority_object);
+        fix_plaza_footsteps();
+    } else {
+        spawn_prios_on_map(GRIDS[LocationId.Town], location_id_to_gm_room(LocationId.Town), "PriorityObjectsPlazaBroken", spawn_priority_object);
+        spawn_prios_on_map(GRIDS[LocationId.Town], location_id_to_gm_room(LocationId.Town), "PriorityGrassPlazaBroken", spawn_priority_grass);
+    }
+
     npcs_on_new_day();
 
     T2R.update_daily();
@@ -288,11 +314,16 @@ function new_game(_baby) {
 
     PLAYTIME = 0;
 
+    //
+    portrait_atlas_load("PortraitsSpring");
+
+    CHECK_ACHIEVEMENTS = true;
+
     trace("Created NewGame in {micro}", get_timer() - start_time);
 }
 
 //
-function start_character_creation(preset, callback) {
+function start_character_creation(preset, callback, creation=true) {
     var canvas = ANCHOR.canvas(ANCHOR.screen_canvas)
         .set_layer(AnchorLayer.AboveFader)
         .set_align(Align.Center, Align.Middle)
@@ -300,7 +331,7 @@ function start_character_creation(preset, callback) {
         .set_alpha(0)
 
     var nodes = create_journal_nodes(canvas);
-    var menu = ANCHOR.spawn_menu(Menu.Customization, nodes, ARI, preset);
+    var menu = ANCHOR.spawn_menu(Menu.Customization, nodes, ARI, preset, creation);
 
     menu.continue_button = ANCHOR.nine_slice(ANCHOR.screen_canvas);
 

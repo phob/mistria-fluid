@@ -116,7 +116,7 @@ object_create(
                             }
 
                             //
-                            if owner.aggro && owner.homie_valid() {
+                            if collision_circle(owner.x, owner.y, owner.config.attack_radius, obj_ari) && owner.homie_valid() {
                                 if owner.acknowledged {
                                     if owner.position == RockStackPosition.Bottom {
                                         fsm.change_state(RockStackState.Windup);
@@ -226,6 +226,7 @@ object_create(
                     StateBuilder(RockStackState.Hopping)
                         .start(function() {
                             self.spd = Vec2();
+                            self.jump_speed = owner.config.jump_speed;
 
                             if owner.homie_valid() {
                                 owner.can_overlap_ari = true;
@@ -236,7 +237,6 @@ object_create(
 
                                 spd = original_spd.clone();
 
-                                self.jump_speed = owner.config.jump_speed;
                                 owner.override_allowed = true;
                             } else {
                                 fsm.change_state(RockStackState.Walk);
@@ -721,7 +721,7 @@ object_create(
             }
 
             if self.lut_texture != undefined {
-                shader_set_texture("u_LutTexture", self.lut_texture);
+                shader_set_texture("u_LutTexture", self.lut_texture, 0, "u_LutTexelSize");
                 gpu_set_extra(UberShaderKind.PaletteSwap, self.uvs[0], self.uvs[1], 1.0);
             }
 

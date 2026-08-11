@@ -150,6 +150,7 @@ object_create(
                                 }
                                 break;
                             case PlayerBuildingKind.Greenhouse:
+                            case PlayerBuildingKind.MiniMuseum:
                                 var lost_items = List();
                                 poof_furniture_to_items(
                                     lost_items,

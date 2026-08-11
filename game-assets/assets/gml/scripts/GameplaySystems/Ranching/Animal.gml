@@ -156,7 +156,7 @@ function BaseAnimal(kind, variant, sex) constructor {
             lut: lut,
             lut_texture: lut_texture,
             lut_index: entry.lut_index,
-            lut_uvs: lut_uvs,
+            lut_uvs,
         };
     }
 
@@ -265,6 +265,9 @@ function PlayerAnimal(kind, variant, sex) : BaseAnimal(kind, variant, sex) const
 
     //
     function add_heart_points(points) {
+        if ARI.perk_active(Perk.TrueTrust) && points < 0 {
+            return;
+        }
         static MAX_POINTS = animal_heart_level_to_points(10);
         var old_level = points_to_animal_heart_level(self.heart_points);
         self.heart_points = clamp(self.heart_points + points, 0, MAX_POINTS);
@@ -381,6 +384,14 @@ function PlayerAnimal(kind, variant, sex) : BaseAnimal(kind, variant, sex) const
 
         if animal_data[$ "location_position"] != undefined {
             self.location_position = deserialize_location_position(animal_data.location_position);
+        }
+
+        //
+        if self.baby_sound_index != clamp(self.baby_sound_index, 0, array_length(self.prototype.sounds.baby) - 1) {
+            self.baby_sound_index = irandom(array_length(self.prototype.sounds.baby) - 1);
+        }
+        if self.adult_sound_index != clamp(self.adult_sound_index, 0, array_length(self.prototype.sounds.adult) - 1) {
+            self.adult_sound_index = irandom(array_length(self.prototype.sounds.adult) - 1);
         }
     }
 }

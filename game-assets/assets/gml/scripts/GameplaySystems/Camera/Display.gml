@@ -39,32 +39,41 @@ function Display() constructor {
         return new Camera(output_size[0] / texel_resize, output_size[1] / texel_resize);
     }
 
+    function on_draw_post_process() {
+        draw_camera_set_view_pos(0, 0);
+        var output_size = window_get_output_dimensions();
+        draw_camera_set_view_size(output_size[0], output_size[1]);
+        surface_set_target(SurfaceId.Screen);
+        draw_clear_all(c_black, 0.0, 1.0, 0);
+
+        //
+        POST_PROCESS.draw();
+    }
+
     function on_draw_gui() {
         draw_camera_set_view_pos(0, 0);
         var output_size = window_get_output_dimensions();
         draw_camera_set_view_size(output_size[0], output_size[1]);
-        surface_set_target(undefined);
-        draw_clear_color(c_black, 0.0);
-
-        //
-        POST_PROCESS.draw(SurfaceId.Staging, 1.0);
 
         if WEATHER != undefined {
             WEATHER.on_draw_gui();
-            draw_clear_depth(1.0);
         }
 
         if DATE_PHOTO_REQUEST != undefined {
             //
-            if DATE_PHOTO_STATUS == undefined {
-                render_date_photo();
+            if DATE_PHOTO_ASSET == -1 {
+                //
+                surface_blit(SurfaceDirection.ScreenToWorld, false);
+
+                //
+                DATE_PHOTO_ASSET = save_world_surface_to_animation(DISPLAY.inverse_asset_resize(), fiddle_get("misc/date_photo_size"));
+
                 //
                 draw_clear_color(c_black, 1.0);
-                DATE_PHOTO_STATUS = 1;
             } else {
-                save_date_photo(DATE_PHOTO_REQUEST[0], DATE_PHOTO_REQUEST[1]);
+                save_date_photo(DATE_PHOTO_REQUEST[0], DATE_PHOTO_REQUEST[1], DATE_PHOTO_ASSET);
                 DATE_PHOTO_REQUEST = undefined;
-                DATE_PHOTO_STATUS = undefined;
+                DATE_PHOTO_ASSET = -1;
             }
         }
 
@@ -83,30 +92,49 @@ function Display() constructor {
             );
         }
 
-        surface_reset_target();
-
         //
         //
-        if self.post_post_processing == PostPostProcessing.Sepia {
-            gpu_disable_blending();
-
-            //
-            surface_blit(undefined, SurfaceId.Staging);
-
-            surface_set_target(undefined);
-            shader_set("shd_post_post_sepia");
-            draw_surface_ext(
-                SurfaceId.Staging,
-                0,
-                0,
-                1.0,
-                1.0,
-                make_color_rgb(159, 142, 126),
-                1.0
-            );
-            surface_reset_target();
-            gpu_enable_blending();
+        //
+        if self.post_post_processing == PostPostProcessing.None
+            && gpu_gamma_scale() == 0.5
+            && gpu_saturation_scale() == 0.5
+        {
+            return;
         }
+
+        //
+        surface_blit(SurfaceDirection.ScreenToWorld, true);
+
+        //
+        //
+        //
+        //
+        gpu_set_srgb_blending(os_type == "macos");
+        gpu_disable_blending();
+
+        //
+        //
+        var post_post = c_white;
+        if self.post_post_processing == PostPostProcessing.Sepia {
+            gpu_set_extra(UberShaderKind.Sepia);
+            post_post = make_color_rgb(159, 142, 126);
+        } else {
+            gpu_set_extra(UberShaderKind.NormalPostPost);
+        }
+
+        draw_world_surface(
+            0,
+            0,
+            1.0,
+            1.0,
+            post_post,
+            1.0
+        );
+        gpu_reset_extra();
+        gpu_enable_blending();
+
+        //
+        gpu_set_srgb_blending(true);
     }
 
     function inverse_asset_resize() {
@@ -252,7 +280,7 @@ function Display() constructor {
         var vert_trans = output_size[1] / texel_resize - NORMAL_MINSPEC_HEIGHT;
 
         return fmt(
-            "Display Information:\nOutputting to {}x{} ({})\n{}x Texel Size{} with Expansion Level {}\n({}, {}) Translation{}\nHiRes Gui: {}x{}\nCamera Dims: {}x{}",
+            "Display Information:\nOutputting to {}x{} ({})\n{}x Texel Size{} with Expansion Level {}\n({}, {}) Translation{}\nCamera Dims: {}x{}",
             output_size[0],
             output_size[1],
             window_is_fullscreen() ? "fullscreen" : "windowed",
@@ -262,8 +290,6 @@ function Display() constructor {
             horiz_trans,
             vert_trans,
             (horiz_trans == 0 && vert_trans == 0) ? " (PERFECT CLAIRE)" : "",
-            surface_get_width(SurfaceId.Staging),
-            surface_get_height(SurfaceId.Staging),
             CAMERA.view_width,
             CAMERA.view_height,
         );

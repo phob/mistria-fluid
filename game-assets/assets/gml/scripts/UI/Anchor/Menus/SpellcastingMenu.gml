@@ -105,7 +105,7 @@ function SpellcastingMenu() : AnchorMenu(Menu.Spellcasting) constructor {
                 .set_sprites_from_key(SPELLS[i].icon_key)
 
             var label = ANCHOR.text(icon)
-                .set_xy(4, 1)
+                .set_x(4)
                 .set_max_width(101)
                 .set_key(SPELLS[i].name)
                 .set_align(Align.RightOut, Align.Middle)
@@ -128,7 +128,7 @@ function SpellcastingMenu() : AnchorMenu(Menu.Spellcasting) constructor {
 
     self.card = ANCHOR.sprite(self.journal.right_full_body)
         .set_sprite(spr_ui_journal_magic_card_backplate_empty)
-        .set_xy(7, 7)
+        .set_xy(3, 7)
 
     self.ribbon = ANCHOR.sprite(self.card)
         .set_align(Align.Center, Align.BottomIn)
@@ -139,19 +139,19 @@ function SpellcastingMenu() : AnchorMenu(Menu.Spellcasting) constructor {
         .set_y(24)
 
     self.detail_zone = ANCHOR.positional(self.journal.right_full_body)
-        .set_size(98, 108)
+        .set_size(103, 108)
         .set_align(Align.RightIn, Align.TopIn)
 
     var yy = 4;
     self.name_label = ANCHOR.text(self.detail_zone)
         .set_align(Align.Center, Align.TopIn)
         .set_y(yy)
-        .set_text("Name")
+        .set_key("misc_local/spell_name")
         .set_lut(COMMON_LUT)
 
     self.name_backplate = ANCHOR.nine_slice(self.name_label)
         .set_sprite(spr_ui_journal_magic_rounded_text_box)
-        .set_size(90, 16)
+        .set_size(99, 16)
         .set_align(Align.Center, Align.BottomOut)
         .set_y(2)
 
@@ -163,12 +163,12 @@ function SpellcastingMenu() : AnchorMenu(Menu.Spellcasting) constructor {
     self.type_label = ANCHOR.text(self.detail_zone)
         .set_align(Align.Center, Align.TopIn)
         .set_y(yy)
-        .set_text("Type")
+        .set_key("misc_local/spell_type")
         .set_lut(COMMON_LUT)
 
     self.type_backplate = ANCHOR.nine_slice(self.type_label)
         .set_sprite(spr_ui_journal_magic_rounded_text_box)
-        .set_size(90, 16)
+        .set_size(99, 16)
         .set_align(Align.Center, Align.BottomOut)
         .set_y(2)
 
@@ -179,7 +179,7 @@ function SpellcastingMenu() : AnchorMenu(Menu.Spellcasting) constructor {
     yy += 36;
     self.cost_label = ANCHOR.text(self.detail_zone)
         .set_align(Align.Center, Align.TopIn)
-        .set_text("Cost")
+        .set_key("misc_local/spell_cost")
         .set_y(yy)
         .set_lut(COMMON_LUT)
 

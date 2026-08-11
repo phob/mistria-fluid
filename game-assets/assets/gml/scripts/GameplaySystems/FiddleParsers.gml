@@ -16,6 +16,12 @@ MALE_ANIMAL_NAMES = undefined;
 #macro FEMALE_ANIMAL_NAMES global.__female_animal_names
 FEMALE_ANIMAL_NAMES = undefined;
 
+#macro MALE_CHILD_NAMES global.__male_child_names
+MALE_CHILD_NAMES = undefined;
+
+#macro FEMALE_CHILD_NAMES global.__female_child_names
+FEMALE_CHILD_NAMES = undefined;
+
 #macro GAMEPLAY_CONVERSATIONS global.__gameplay_conversations
 GAMEPLAY_CONVERSATIONS = undefined;
 
@@ -110,6 +116,9 @@ SECRET_NARROWS = 0;
 #macro SECRET_BEACH global.__secret_beach
 SECRET_BEACH = 0;
 
+#macro SECRET_TOWER global.__secret_tower
+SECRET_TOWER = 0;
+
 #macro LOST_AND_FOUND global.__lost_and_found
 LOST_AND_FOUND = undefined;
 
@@ -121,6 +130,12 @@ FISH_TRAP_TIMESTAMP = undefined;
 
 #macro ROOMMATE_TIMES global.__roommate_times
 ROOMMATE_TIMES = undefined;
+
+#macro SONGS global.__songs
+SONGS = undefined;
+
+#macro BELL_SOUNDS global.__bell_sounds
+BELL_SOUNDS = undefined;
 
 //
 //
@@ -134,6 +149,9 @@ function create_fiddle_parsers() {
 
     MALE_ANIMAL_NAMES = ListFromArray(fiddle_get("ranching/misc/default_male_names"));
     FEMALE_ANIMAL_NAMES = ListFromArray(fiddle_get("ranching/misc/default_female_names"));
+
+    MALE_CHILD_NAMES = ListFromArray(fiddle_get("misc/default_male_child_names"));
+    FEMALE_CHILD_NAMES = ListFromArray(fiddle_get("misc/default_female_child_names"));
 
     GAMEPLAY_CONVERSATIONS = find_gameplay_conversations();
     FOOTSTEPS = parse_footsteps(fiddle_get("footsteps"));
@@ -173,6 +191,7 @@ function ContentRegistry() constructor {
         struct_get_names(fiddle_get("quests/story_quests")),
         struct_get_names(fiddle_get("quests/crown_quests")),
         struct_get_names(fiddle_get("quests/tali_challenges")),
+        struct_get_names(fiddle_get("quests/stillwell_challenges")),
         struct_get_names(fiddle_get("quests/heart_quests")),
         struct_get_names(fiddle_get("quests/fetch_quests")),
     );
@@ -229,6 +248,11 @@ function soup_of_the_day() {
 
 function random_animal_name(sex) {
     var list = sex == Sex.Female ? FEMALE_ANIMAL_NAMES : MALE_ANIMAL_NAMES;
+    return list.choose_random();
+}
+
+function random_child_name(sex) {
+    var list = sex == Sex.Female ? FEMALE_CHILD_NAMES : MALE_CHILD_NAMES;
     return list.choose_random();
 }
 
@@ -596,6 +620,30 @@ function load_text_styles() {
     return output;
 }
 
+function load_songs() {
+    var output = {};
+    var f = fiddle_get("songs");
+    var keys = struct_get_names(f);
+    for (var i = 0 ; i < array_length(keys); i++) {
+        var key = keys[i];
+        output[key] = f[key];
+        output[key].icon = string_to_asset(output[key].icon);
+    }
+    return output;
+}
+
+function load_bell_sounds() {
+    var output = {};
+    var f = fiddle_get("bell_sounds");
+    var keys = struct_get_names(f);
+    for (var i = 0 ; i < array_length(keys); i++) {
+        var key = keys[i];
+        output[key] = f[key];
+        output[key].icon = string_to_asset(output[key].icon);
+    }
+    return output;
+}
+
 function find_gameplay_conversations() {
     var o = array_create(GpTriggeredConversation.LEN, undefined);
 
@@ -734,6 +782,7 @@ enum GpTriggeredConversation {
     IncubationShort,
     ChickenStatueNoCurrency,
     ChickenStatueHasCurrency,
+    ChickenStatueEgg,
     OfferingInteraction,
 
     ShootingStarNotYet,
@@ -887,6 +936,25 @@ enum GpTriggeredConversation {
 
     EmptyBathhouse,
     EmptyBathhouseFarewell,
+
+    AdelinesLifetimePlannerText,
+    BalorsPolishedGemText,
+    CaldarusDragonswornStatueText,
+    CelinesRevivedFlowerText,
+    EilandsLegacySteleText,
+    HaydensCarvedNestText,
+    JunipersProtectionScrollText,
+    MarchsMistrianShieldText,
+    ReinasCookbookManuscriptText,
+    RyisHawthornTreeText,
+    SeridiasDragonswornArmorText,
+    ValensPanaceaJarText,
+
+    TakeBaby,
+
+    CaldarusProposalEdgeCase,
+
+    ReplicaStatue,
 
     LEN,
 }

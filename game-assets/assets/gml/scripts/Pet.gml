@@ -12,6 +12,16 @@ enum PetKind {
     Mushroom,
     Rockclod,
     Oreclod,
+    Enchantern,
+    Stalagmite,
+    EssenceBat,
+    Mimic,
+    FlameSpirit,
+    LavaCat,
+    VoidCat,
+    RockStack,
+    FlyingTome,
+    GriffinStatue,
 
     LEN
 }
@@ -179,6 +189,16 @@ function Pet() constructor {
             case PetKind.Mushroom: return "SoundEffects/Enemies/Mushroom/PetPositiveReact";
             case PetKind.Rockclod: return "SoundEffects/Enemies/Rockclod/PetPositiveReact";
             case PetKind.Oreclod: return "SoundEffects/Enemies/Rockclod/PetPositiveReact";
+            case PetKind.Enchantern: return "SoundEffects/Enemies/Enchantern/PetPositiveReact";
+            case PetKind.Stalagmite: return "SoundEffects/Enemies/Stalagmite/PetPositiveReact";
+            case PetKind.EssenceBat: return "SoundEffects/Enemies/EssenceBat/PetPositiveReact";
+            case PetKind.Mimic: return "SoundEffects/Enemies/MimicChest/PetPositiveReact";
+            case PetKind.FlameSpirit: return "SoundEffects/Enemies/FlameSprite/PetPositiveReact";
+            case PetKind.LavaCat: return "SoundEffects/Enemies/LavaCat/PetPositiveReact";
+            case PetKind.VoidCat: return "SoundEffects/Enemies/LavaCat/PetPositiveReact";
+            case PetKind.RockStack: return "SoundEffects/Enemies/RockStack/PetPositiveReact";
+            case PetKind.FlyingTome: return "SoundEffects/Enemies/Tome/PetPositiveReact";
+            case PetKind.GriffinStatue: return "SoundEffects/Enemies/GriffinStatue/PetPositiveReact";
             default: impossible("unexpected pet_kind");
         }
     }
@@ -229,7 +249,7 @@ function Pet() constructor {
 
     function deserialize(pet_data, time) {
         self.variant = pet_data.variant;
-        if !DEBUG_ASSERTIONS && PET_PROTOTYPE.variants.contains_key(self.variant) == false {
+        if DEBUG_ASSERTIONS == false && PET_PROTOTYPE.variants.contains_key(self.variant) == false {
             error("Unexpected pet variant: `{}`, replaced with `cat_tabby`", self.variant);
             self.variant = "cat_tabby";
         }
@@ -331,14 +351,17 @@ function pet_update_at_time(time, should_spawn_pet=true, obey_pause=true) {
                 }
                 break;
             case PetManagement.Afternoon:
+                var reward = PET.job_active && PET.job != PetJob.None;
+
                 //
                 if instance_exists(obj_pet) && (obj_pet.deferred_job_active_status != undefined || obj_pet.try_leave_house) {
-                    PET.job_active = true; //
+                    //
+                    reward = PET.job != PetJob.None;
                     //
                     obj_pet.deferred_job_active_status = undefined;
                 }
 
-                if PET.job_active && PET.job != PetJob.None {
+                if reward {
                     var job_data = PET_PROTOTYPE.job_setup_data[PET.job];
                     var heart_level = clamp(points_to_animal_heart_level(PET.heart_points), 0, 10);
                     var reward_range = job_data.reward_table[heart_level];

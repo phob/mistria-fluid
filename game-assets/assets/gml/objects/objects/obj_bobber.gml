@@ -204,7 +204,17 @@ object_create(
                             c_black,
                             0.3
                         );
-                        draw_instance_pixel_perfect(self.owner, 0);
+                        draw_sprite_ext(
+                            owner.sprite_index,
+                            owner.image_index,
+                            owner.x,
+                            owner.y,
+                            owner.image_xscale,
+                            owner.image_yscale,
+                            0,
+                            owner.image_blend,
+                            owner.image_alpha,
+                        );
                     })
                     .stop(function() {
                         self.blackboard.set("land_pos", self.land_pos);
@@ -235,7 +245,7 @@ object_create(
 
                         //
                         var _force = GRID.node_force[GRID.node_index_for_room_position(self.owner.x, self.owner.y)];
-                        if _force != 0 && point_distance(self.start_pos.x, self.start_pos.y, self.owner.x, self.owner.y) < self.max_dist_from_land {
+                        if _force != undefined && _force != 0 && point_distance(self.start_pos.x, self.start_pos.y, self.owner.x, self.owner.y) < self.max_dist_from_land {
                             self.current_tile = _force;
                             self.water_current_dir = tile_forces_to_dir(self.current_tile);
                             if self.water_current_dir != 0 {
@@ -263,7 +273,17 @@ object_create(
 
                     })
                     .draw(function() {
-                        draw_instance_pixel_perfect(self.owner, 0);
+                        draw_sprite_ext(
+                            owner.sprite_index,
+                            owner.image_index,
+                            owner.x,
+                            owner.y,
+                            owner.image_xscale,
+                            owner.image_yscale,
+                            0,
+                            owner.image_blend,
+                            owner.image_alpha,
+                        );
 
                         //
                         if self.owner.sprite_index == spr_tool_lure_old_bite_start {
@@ -356,7 +376,7 @@ object_create(
                             0.3
                         );
 
-                        draw_sprite_ext_pixel_perfect(
+                        draw_sprite_ext(
                             self.owner.sprite_index,
                             self.owner.image_index,
                             self.owner.x + self.offset.x,

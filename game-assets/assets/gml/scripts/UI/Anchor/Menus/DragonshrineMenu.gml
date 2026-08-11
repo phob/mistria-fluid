@@ -6,9 +6,21 @@ enum ShrineMenuVariant {
 }
 
 function DragonShrineMenu(variant) : AnchorMenu(Menu.DragonShrine) constructor {
+    self.chain = undefined;
+
     //
     function on_free() {
+        self.cancel_transition();
         ANCHOR.free_node(self.essence_backplate);
+    }
+
+    function cancel_transition() {
+        if self.chain != undefined {
+            if self.chain.running {
+                CHAINS.cancel_chain(self.chain);
+            }
+            self.chain = undefined;
+        }
     }
 
     //
@@ -35,7 +47,7 @@ function DragonShrineMenu(variant) : AnchorMenu(Menu.DragonShrine) constructor {
 
             var x_padding = string_length(cat_level_text) == 1 ? 3 : 0;
             var level_sprite = ANCHOR.sprite(tile)
-                .set_sprite(spr_ui_generic_icon_levelstring)
+                .set_sprite(string_to_asset(format("spr_ui_skills_lvl_{}", asset_local_insert())))
                 .set_align(Align.Center, Align.BottomOut)
                 .set_xy(-6 + x_padding, 5)
 
@@ -192,7 +204,7 @@ function DragonShrineMenu(variant) : AnchorMenu(Menu.DragonShrine) constructor {
 
             var x_pad = string_length(string(tier_level)) == 1 ? 3 : 0;
             var level_sprite = ANCHOR.sprite(left_square)
-                .set_sprite(spr_ui_generic_icon_levelstring)
+                .set_sprite(string_to_asset(format("spr_ui_skills_lvl_{}", asset_local_insert())))
                 .set_align(Align.Center, Align.BottomIn)
                 .set_xy(-6 + x_pad, -7)
                 .set_lut(spr_ui_skills_lut, unlocked ? 0 : 4)
@@ -352,6 +364,7 @@ function DragonShrineMenu(variant) : AnchorMenu(Menu.DragonShrine) constructor {
 
     //
     function transition(target_state, build_function, args) {
+        self.cancel_transition();
         self.state = DragonShrineState.Transition;
         self.lock();
         ANCHOR.release_active_pilot();
@@ -430,6 +443,8 @@ function DragonShrineMenu(variant) : AnchorMenu(Menu.DragonShrine) constructor {
     });
 
     function on_close() {
+        self.cancel_transition();
+
         if !ari_has_recipe_anywhere(ItemId.BigBell) && ARI.perks[Perk.TheBellTolls] {
             if instance_exists(obj_dragonshrine) {
                 item_from_critical_poof(
@@ -598,6 +613,26 @@ function load_dragon_shrine_data() {
         collection.set(key, prototype);
     }
     return collection;
+}
+
+//
+//
+function get_tier_five_perks_by_category() {
+    var groups = [];
+    var keys = DRAGON_SHRINE_DATA.keys();
+    for (var i = 0; i < array_length(keys); i++) {
+        var tier_five = DRAGON_SHRINE_DATA.get(keys[i]).tier_5;
+        var perks = [];
+        for (var j = 0; j < array_length(tier_five); j++) {
+            if tier_five[j].perk != undefined {
+                array_push(perks, tier_five[j].perk);
+            }
+        }
+        if !array_is_empty(perks) {
+            array_push(groups, perks);
+        }
+    }
+    return groups;
 }
 
 enum DragonShrineState {

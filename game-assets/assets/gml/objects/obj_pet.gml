@@ -42,7 +42,7 @@ object_create(
 
                 //
                 ARI.held_animal_id = undefined;
-                obj_ari.par.held_item_render_callback = undefined;
+                obj_ari.par.held_animal_render_callback = undefined;
             }
 
             function create_animal_currency_dance(currency_amount, face_ari) {
@@ -278,6 +278,12 @@ object_create(
                     } else {
                         self.fsm.blackboard.set("animation", animation);
                         self.fsm.change_state(PetState.Animate);
+                    }
+                } else if self.fsm.current_state_id() == PetState.UsingToy {
+                    var state = self.fsm.current_state();
+                    
+                    if state.toy.prototype.animal_toy.centered_pets[self.me.pet_kind()] == false {
+                        interact(state.toy);
                     }
                 } else {
                     self.set_sprites(PET.animation);
@@ -631,7 +637,7 @@ object_create(
                         owner.set_sprites("idle");
 
                         ARI.held_animal_id = PET_ID;
-                        obj_ari.par.held_item_render_callback = function(_spr, _img_idx, xx, yy, flipper) {
+                        obj_ari.par.held_animal_render_callback = function(xx, yy, flipper) {
                             var old_image_xscale = owner.image_xscale;
                             owner.image_xscale = flipper;
                             owner.draw_routine(xx, yy);
@@ -714,14 +720,22 @@ object_create(
                 .add_state(StateBuilder(PetState.UsingToy)
                     .start(function() {
                         self.toy = self.blackboard.take("toy");
-                        self.is_left = self.blackboard.take("is_left");
+                        self.animal_toy_position = self.blackboard.take("animal_toy_position");
+                        self.idle = self.toy.prototype.animal_toy.animal_idle != undefined ? self.toy.prototype.animal_toy.animal_idle : "idle";
 
-                        if self.is_left {
-                            self.attach_point_track = self.toy.prototype.animal_toy.attach_points.left;
-                            owner.me.set_cardinality(Cardinal.East);
-                        } else {
-                            self.attach_point_track = self.toy.prototype.animal_toy.attach_points.right;
-                            owner.me.set_cardinality(Cardinal.West);
+                        switch self.animal_toy_position {
+                            case AnimalToyPosition.Left:
+                                self.attach_point_track = self.toy.prototype.animal_toy.attach_points.left;
+                                owner.me.set_cardinality(Cardinal.East);
+                                break;
+                            case AnimalToyPosition.Right:
+                                self.attach_point_track = self.toy.prototype.animal_toy.attach_points.right;
+                                owner.me.set_cardinality(Cardinal.West);
+                                break;
+                            case AnimalToyPosition.Center:
+                                self.attach_point_track = self.toy.prototype.animal_toy.attach_points.center;
+                                owner.me.set_cardinality(Cardinal.East);
+                                break;
                         }
 
                         //
@@ -777,13 +791,14 @@ object_create(
                         }
                     })
                     .anim_end(function() {
-                        owner.set_sprites("idle");
+                        owner.set_sprites(self.idle);
                     })
                     .stop(function() {
                         self.toy.animal_count -= 1;
 
                         if self.toy.animal_count <= 0 {
                             self.toy.renderer.set_sprite(self.toy.prototype.cardinal_data[self.toy.cardinal_index].sprite);
+                            stop_animal_toy_sfx(self.toy);
                         }
 
                         owner.inhibit_shadow = false;

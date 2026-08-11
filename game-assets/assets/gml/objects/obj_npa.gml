@@ -6,6 +6,8 @@ object_create(
         create: function() {
             event_inherit(ObjectEvent.Create);
 
+            self.mask_index = self.me.prototype.core.size == AnimalSize.Large ? spr_large_animal_mask : spr_small_animal_mask;
+
             function on_pet() {
                 if SETTINGS.get("sound_animals") {
                     var sounds = self.me.sounds();

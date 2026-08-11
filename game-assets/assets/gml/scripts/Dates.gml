@@ -7,8 +7,8 @@ DATE_PHOTOS = undefined;
 #macro DATE_PHOTO_REQUEST global.__date_photo_request
 DATE_PHOTO_REQUEST = undefined;
 
-#macro DATE_PHOTO_STATUS global.__date_photo_status
-DATE_PHOTO_STATUS = undefined;
+#macro DATE_PHOTO_ASSET global.__date_photo_asset
+DATE_PHOTO_ASSET = -1;
 
 #macro ELIGIBLE_DATE_DAYS global.__eligible_date_days
 ELIGIBLE_DATE_DAYS = undefined;
@@ -53,14 +53,32 @@ function load_dates() {
     return output;
 }
 
+function clear_loaded_date_photos() {
+    for (var i = 0; i < array_length(DATE_PHOTOS);  i++) {
+        var photo = DATE_PHOTOS[i];
+        if photo.photo_decompressed != undefined
+            && photo.photo_decompressed != spr_nothing
+        {
+            try {
+                animation_remove(photo.photo_decompressed);
+            } catch(e) {
+                error("Failed to remove date photo from VRAM: {}", e);
+            }
+
+            photo.photo_decompressed = undefined;
+        }
+    }
+}
+
 function date_selection_ui(npc_id) {
     var popup = popup_creator("misc_local/select_a_date");
     popup.backplate.set_height(190);
+    popup.backplate.add_width(70);
 
     var scroller = create_scroller(
         popup.backplate,
         Vec2(10, 36),
-        Vec2(147, 140),
+        Vec2(217, 140),
     );
     scroller.outline.enable();
     scroller.subscribe_to_pilot(popup.pilot);
@@ -191,6 +209,7 @@ function start_date_cutscene(npc, date) {
     MIST.blackboard.set("date_partner", npc_id_to_string(npc));
     MIST.blackboard.set("date", date);
     MIST.blackboard.set("outfit", outfit_for_date(npc, date, CALENDAR.time));
+    MIST.blackboard.set("no_held_child", true);
 
     //
     var item = undefined;
@@ -357,57 +376,47 @@ function ari_has_photo_for(npc, date) {
 }
 
 function spawn_date_photo(index) {
+    static SIZE = fiddle_get("misc/date_photo_size");
+
     if index == undefined || index == -1 || index >= array_length(DATE_PHOTOS) {
         data = {
             date: Date.InnMeal,
             npc: some_romantic_npc(),
             photo: "",
+            photo_decompressed: spr_nothing,
             timestamp: CALENDAR.time,
         };
     } else {
         data = DATE_PHOTOS[index];
     }
 
+    //
+    if data.photo_decompressed == undefined {
+        data.photo_decompressed = animation_decompress(data.photo, SIZE[0], SIZE[1]);
+    }
+
     var popup = popup_creator(ANCHOR.wrap_for_local(format(
         local_get(DATES[data.date].photo_title),
         local_get(NPC_PROTOTYPES[data.npc].name),
     )));
-    popup.backplate.set_size(232, 234);
+
+    popup.forced_atlas = undefined;
+    if get_seasons(data.timestamp) != CALENDAR.season() {
+        popup.forced_atlas = season_to_portrait_atlas(get_seasons(data.timestamp));
+        portrait_atlas_load(popup.forced_atlas);
+    }
+
+    popup.backplate.set_size(232, 238);
     popup.header
         .set_xy(0, 0)
         .set_sprite(spr_ui_tooltip_header_box)
         .set_size(popup.backplate.get_width(), 24);
 
-    static SIZE = fiddle_get("misc/date_photo_size");
-    var photo = ANCHOR.custom(popup.backplate)
-        .set_xy(3, 23)
-        .set_size(SIZE[0], SIZE[1]);
-
-    photo.set_render_callback(function(xx, yy, _w, _h, _c, a, z, photo, data) {
-        if photo.needs_decompression {
-            photo.needs_decompression = false;
-            try {
-                date_surface_decompress(data.photo);
-            } catch (e) {
-                error("Failed to decode date photo! {}", e);
-                return undefined;
-            }
-        }
-
-        gpu_set_depth(z);
-        gpu_set_extra(UberShaderKind.Premultiply);
-        draw_surface_ext(
-            SurfaceId.Date,
-            xx,
-            yy,
-            1,
-            1,
-            make_color_rgb(200, 200, 200),
-            a
-        );
-        gpu_reset_extra();
-    }, [photo, data]);
-    photo.needs_decompression = true;
+    var photo = ANCHOR.sprite(popup.header)
+        .set_align(Align.Center, Align.BottomOut)
+        .set_sprite(data.photo_decompressed)
+        .set_color(make_color_rgb(200, 200, 200))
+        .set_y(-1);
 
     var date = DATES[data.date];
 
@@ -435,45 +444,29 @@ function spawn_date_photo(index) {
 
     popup.create_button("misc_local/close");
 
+    popup.close_callback = method(popup, function() {
+        if self.forced_atlas != undefined {
+            portrait_atlas_unload(self.forced_atlas);
+        }
+    })
+
     popup.spawn();
 }
 
-function render_date_photo() {
-    var size = fiddle_get("misc/date_photo_size");
-    surface_set_target(SurfaceId.Date);
-    draw_clear_color(c_black, 1);
-
-    var old_view_pos = draw_camera_get_view_pos();
-    var old_view_size = draw_camera_get_view_size();
-
-    //
-    //
-    draw_camera_set_view_pos(
-        (surface_get_width(SurfaceId.Staging) * DISPLAY.inverse_asset_resize() - size[0]) * 0.5,
-        (surface_get_height(SurfaceId.Staging) * DISPLAY.inverse_asset_resize() - size[1]) * 0.5,
-    );
-    draw_camera_set_view_size(size[0], size[1]);
-
-    draw_surface_ext(
-        SurfaceId.Staging,
-        0,
-        0,
-        DISPLAY.inverse_asset_resize(),
-        DISPLAY.inverse_asset_resize(),
-        c_white,
-        1,
-    );
-    surface_set_target(undefined);
-
-    draw_camera_set_view_pos(old_view_pos[0], old_view_pos[1]);
-    draw_camera_set_view_size(old_view_size[0], old_view_size[1]);
-}
-
-function save_date_photo(npc, date_id) {
-    var photo = date_surface_compress() ?? "";
+function save_date_photo(npc, date_id, date_sprite) {
+    var photo = undefined;
+    var photo_decompressed = undefined;
+    if date_sprite != undefined {
+        photo = animation_compress(date_sprite);
+        animation_remove(date_sprite);
+    } else {
+        photo = "";
+        photo_decompressed = spr_nothing;
+    }
 
     array_push(DATE_PHOTOS, {
         photo,
+        photo_decompressed,
         npc,
         timestamp: CALENDAR.time,
         date: date_id,

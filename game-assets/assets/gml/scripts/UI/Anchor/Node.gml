@@ -867,24 +867,41 @@ function Node(_parent, _z, _layer_override) constructor {
             return self.label;
         }
 
+        var prefix = "unknown";
+
         //
         for (var i = 0; i < ANCHOR.open_menus.count(); i++) {
             var menu = ANCHOR.open_menus.get(i);
             var names = struct_get_names(menu);
             for (var j = 0; j < array_length(names); j++) {
                 if menu[$ names[j]] == self {
-                    return format("{}::{}", capitalize(menu_to_string(menu.type)), names[j]);
+                    prefix = format("{}::{}", capitalize(menu_to_string(menu.type)), names[j]);
                 }
             }
         }
 
         //
         var stack = self.creation_location();
+        var out = "unknown";
         switch self.type {
-            case NodeId.Text: return fmt("TextNode<'{}'> @ {}", self.local_key ?? self.text, stack);
-            case NodeId.Sprite: return fmt("SpriteNode<{gm_sprite}> @ {}", self.sprite, stack);
-            default: return fmt("{}Node @ {}", capitalize(node_id_to_string(self.type)), stack);
+            case NodeId.Text:
+                prefix ??= "Text";
+                var key = self.get_display_key();
+                if key == undefined || string_pos("extra_local", key) != 0 {
+                    key = self.text;
+                }
+                out = fmt("<'{}'>", key);
+                break;
+            case NodeId.Sprite:
+                prefix ??= "Sprite";
+                out = fmt("<{gm_sprite}>", self.sprite);
+                break;
+            default:
+                out = fmt("{}", capitalize(node_id_to_string(self.type)));
+                break;
         }
+
+        return format("{}{}", prefix, out);
     }
 
     //
@@ -935,7 +952,7 @@ function TextNode(parent, z, layer_override) : Node(parent, z, layer_override) c
     self.font = ANCHOR.default_font;
     self.font_is_forced = false;
     self.text_style = undefined;
-    self.line_height = DEFAULT_LINE_HEIGHT;
+    self.line_height = undefined;
     self.max_width = undefined;
     self.max_height = undefined;
     self.max_characters = undefined;
@@ -948,6 +965,8 @@ function TextNode(parent, z, layer_override) : Node(parent, z, layer_override) c
     self.sprite_font = undefined;
     self.sprite_font_name = undefined;
     self.ghost_key = undefined;
+    self.required_padding = 6;
+    self.spillover_logged_text = undefined;
     self.backspace_info = {
         active: false,
         delay_timer: 0,
@@ -990,6 +1009,7 @@ function TextNode(parent, z, layer_override) : Node(parent, z, layer_override) c
             return self;
         }
         self.local_key = key;
+
         self.set_text(local_get(key));
         self.text_input_mode = AnchorTextInputMode.LocalKey;
         return self;
@@ -1005,6 +1025,16 @@ function TextNode(parent, z, layer_override) : Node(parent, z, layer_override) c
 
     static get_local_key = function() {
         return self.local_key;
+    }
+
+    //
+    //
+    //
+    static get_display_key = function() {
+        if self.ghost_key != undefined {
+            return self.ghost_key;
+        }
+        return self.text_input_mode == AnchorTextInputMode.LocalKey ? self.local_key : undefined;
     }
 
     static set_text = function(str) {
@@ -1023,35 +1053,25 @@ function TextNode(parent, z, layer_override) : Node(parent, z, layer_override) c
         return self;
     }
 
-    static filter_text = function() {
-        var output = self.text;
-
-        //
-        //
-        //
-        //
-        //
-        //
-        //
-        //
-        //
-        //
-        //
-
-        self.set_text(output);
-        return self;
-    }
 
 
     static get_text = function() {
         return self.text;
     }
 
+    static set_required_padding = function(val) {
+        if self.required_padding == val {
+            return self;
+        }
+        self.cache_is_dirty = true;
+        self.required_padding = val;
+        return self;
+    }
+
     static infer_max_size = function(node) {
-        static MIN_PADDING = 6;
         node = node == undefined ? self.parent : node;
         return Vec2(
-            node.get_width() - max(self.get_x() * 2, MIN_PADDING),
+            node.get_width() - max(self.get_x() * 2, self.required_padding),
             node.get_height() - self.get_y() * 2,
         );
     }
@@ -1068,13 +1088,22 @@ function TextNode(parent, z, layer_override) : Node(parent, z, layer_override) c
         return self;
     }
 
+    static measure = function() {
+        if self.cache_is_dirty {
+            self.update_display_text();
+        }
+        return Vec2(self.width, self.height);
+    }
+
     //
     static update_display_text = function() {
         if self.max_characters != undefined {
-            self.display_text = string_copy(self.text, 0, min(string_length(self.text), self.max_characters));
+            self.display_text = string_copy(self.text, 1, min(string_length(self.text), self.max_characters));
         } else if self.can_line_break {
             var max_size = self.get_max_size();
-            self.display_text = ANCHOR.reflow(self.text, max_size.x, self.font);
+            var key_to_check = self.ghost_key ?? self.local_key;
+            var force = key_to_check != undefined && !local_has_translation(local_language(), key_to_check);
+            self.display_text = ANCHOR.reflow(self.text, max_size.x, self.font, force);
         } else {
             self.display_text = self.text;
         }
@@ -1097,19 +1126,27 @@ function TextNode(parent, z, layer_override) : Node(parent, z, layer_override) c
             self.height = string_height(self.display_text, self.line_height, I32_MAX);
         }
 
-        if self.disallow_spillover {
-            var max_size = self.get_max_size();
-            if max_size.x < self.width || max_size.y < self.height {
-                SPILLOVER_LOGS.push({
-                    location: self.creation_location(),
-                    text: self.get_text(),
-                    key: self.ghost_key ?? self.local_key,
-                    max_size: max_size,
-                    my_size: Vec2(self.width, self.height),
-                });
-            }
-        }
+        return self;
+    }
 
+    //
+    //
+    static check_spillover = function() {
+        if !self.disallow_spillover || self.spillover_logged_text == self.text {
+            return self;
+        }
+        var max_size = self.get_max_size();
+        if max_size.x < self.width || max_size.y < self.height {
+            self.spillover_logged_text = self.text;
+            var source_menu = self.source_menu == undefined ? undefined : self.source_menu.type;
+            var menu = TEST_SUITE_MENU_TARGET ?? source_menu;
+            SPILLOVER_LOGS.push({
+                node: self.display(),
+                menu: menu == undefined ? "unknown" : menu_to_string(menu),
+                max_size: max_size,
+                my_size: Vec2(self.width, self.height),
+            });
+        }
         return self;
     }
 
@@ -1185,13 +1222,12 @@ function TextNode(parent, z, layer_override) : Node(parent, z, layer_override) c
     }
 
     static set_max_width = function(width) {
-        if self.max_width == width {
-            return self;
+        if self.max_width != width {
+            self.cache_is_dirty = true;
+            self.max_width = width;
         }
-        self.cache_is_dirty = true;
-        self.max_width = width;
-        self.can_line_break = true;
         self.max_characters = undefined;
+        self.allow_line_breaks();
         return self;
     }
 
@@ -1287,6 +1323,7 @@ function TextNode(parent, z, layer_override) : Node(parent, z, layer_override) c
                 if array_is_empty(lines) {
                     lines = [self.display_text];
                 }
+                var line_height = font_line_height(self.get_font());
                 for (var i = 0; i < array_length(lines); i++) {
                     var line = lines[i];
                     var width = string_width_font(line) + 3; //
@@ -1316,11 +1353,17 @@ function TypewriterNode(parent, z, layer_override) : Node(parent, z, layer_overr
     pause_timer = 0;
     speaker_sound_path = undefined;
     override_sound = undefined;
+    ghost_key = undefined;
 
     static set_text_style = function(pack) {
         self.text_style = pack;
         self.cache_is_dirty = true;
         self.font = TEXT_STYLES[$ pack][$ local_language()];
+        return self;
+    }
+
+    static set_ghost_key = function(key) {
+        self.ghost_key = key;
         return self;
     }
 
@@ -1367,6 +1410,18 @@ function TypewriterNode(parent, z, layer_override) : Node(parent, z, layer_overr
         return self;
     }
 
+    static make_character = function(char, linebreak=false, gold=false, purple=false, pink=false, jitter=false, shake=false) {
+        return {
+            char: char,
+            gold: gold,
+            purple: purple,
+            pink: pink,
+            jitter: jitter,
+            shake: shake,
+            linebreak: linebreak,
+        };
+    }
+
     static play = function(input_text) {
         self.cache_is_dirty = true;
         self.counter = 0;
@@ -1376,9 +1431,21 @@ function TypewriterNode(parent, z, layer_override) : Node(parent, z, layer_overr
         var str_len = string_length(input_text);
         var special_chars = fiddle_get("ui/text_markers/special_characters");
 
-        //
-        var current_width = 0;
-        var last_space = -1;
+        var plain_text = "";
+        for (var i = 1; i <= str_len; i++) {
+            var char = string_char_at(input_text, i);
+            if !array_has(special_chars, char) {
+                plain_text += char;
+            }
+        }
+        var break_positions = HashSetFromArray(line_break_positions(plain_text));
+        var line_width = 0; //
+        var pending_width = 0; //
+        var line_start = 0; //
+        var pending_start = 0; //
+        var plain_index = 0; //
+        var can_break = local_get_info(LocalInfoRequest.AutomaticLinebreaks)
+            || !local_has_translation(local_language(), self.ghost_key);
         var inside_jitter = false;
         var inside_gold = false;
         var inside_purple = false;
@@ -1407,33 +1474,43 @@ function TypewriterNode(parent, z, layer_override) : Node(parent, z, layer_overr
                 }
                 continue;
             }
-            self.characters.push({
-                char: char,
-                gold: inside_gold,
-                purple: inside_purple,
-                pink: inside_pink,
-                jitter: inside_jitter,
-                shake: shake,
-                linebreak: false,
-            });
-            if char == " " {
-                last_space = self.characters.count() - 1;
-            }
+            self.characters.push(self.make_character(char, false, inside_gold, inside_purple, inside_pink, inside_jitter, shake));
+
+            plain_index += 1;
 
             if char == "\n" {
                 self.characters.last().linebreak = true;
-                current_width = 0;
-            } else {
-                current_width += char == " " ? 4 : string_width(char);
-                if current_width > self.max_width && local_get_info(LocalInfoRequest.AutomaticLinebreaks) {
-                    self.characters.get(last_space).linebreak = true;
-                    current_width = 0;
-                    for (var j = last_space; j < self.characters.count(); j++) {
-                        current_width += string_width(self.characters.get(j).char);
-                    }
-                }
+                line_width = 0;
+                pending_width = 0;
+                line_start = self.characters.count();
+                pending_start = line_start;
+                continue;
             }
 
+            pending_width += char == " " ? 4 : string_width(char);
+            if break_positions.contains(plain_index) {
+                line_width += pending_width;
+                pending_width = 0;
+                pending_start = self.characters.count();
+            }
+
+            if can_break && line_width + pending_width > self.max_width {
+                var break_marker = self.make_character(" ", true);
+                if pending_start == line_start || pending_start == self.characters.count() {
+                    self.characters.push(break_marker);
+                    pending_start = self.characters.count();
+                    pending_width = 0;
+                } else {
+                    //
+                    //
+                    //
+                    self.characters.insert(break_marker, pending_start);
+                    pending_start += 1;
+                }
+
+                line_width = 0;
+                line_start = pending_start;
+            }
         }
     }
 }

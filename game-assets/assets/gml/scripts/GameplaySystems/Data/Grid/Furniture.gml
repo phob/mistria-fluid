@@ -96,13 +96,22 @@ function create_furniture_prototype(object_id, fiddle_obj) {
         activities: opt_and_then(fiddle_obj[$ "activities"], function(a) {
             return apply_func(a, function(v) {
                 v.positions = apply_func(v.positions, function(v) {
+                    var offsets = undefined;
                     if is_array(v) {
-                        return array_create(Cardinal.LEN, array_to_vec2(v));
+                        offsets = array_create(Cardinal.LEN, array_to_vec2(v));
                     } else {
-                        var cardinals = array_create(Cardinal.LEN);
-                        apply_struct_to_array(cardinals, v, string_to_cardinal, array_to_vec2);
-                        return cardinals;
+                        offsets = array_create(Cardinal.LEN);
+                        apply_struct_to_array(offsets, v, string_to_cardinal, array_to_vec2);
                     }
+
+                    //
+                    //
+                    if offsets[Cardinal.West] == undefined && offsets[Cardinal.East] != undefined {
+                        offsets[Cardinal.West] = offsets[Cardinal.East].clone();
+                        offsets[Cardinal.West].x *= -1;
+                    }
+
+                    return offsets;
                 });
                 v.direction = opt_and_then(v[$ "direction"], string_to_cardinal);
                 return v;
@@ -163,6 +172,15 @@ function create_furniture_prototype(object_id, fiddle_obj) {
             }
         }),
         continual_sound: opt_and_then(fiddle_obj[$ "continual_sound"], audio_asset_assert_exists),
+        restoration: opt_and_then(
+            fiddle_obj[$ "restoration"] != false ? fiddle_obj.restoration : undefined,
+            function(v) {
+                v.convo = string_to_gp_triggered_conversation(v.convo);
+                return v;
+            },
+        ),
+        is_crystal_resonator: fiddle_obj.is_crystal_resonator,
+        write_flag: fiddle_obj["write_flag"] == false ? undefined : fiddle_obj["write_flag"],
     };
 
     //
@@ -227,6 +245,12 @@ function create_furniture_prototype(object_id, fiddle_obj) {
         return opt_and_then(value, string_to_asset);
     });
     CARDINAL_PARSE_ENTRY(o, fiddle_obj, "winter_sprite", function(value) {
+        return opt_and_then(value, string_to_asset);
+    });
+    CARDINAL_PARSE_ENTRY(o, fiddle_obj, "summer_sprite", function(value) {
+        return opt_and_then(value, string_to_asset);
+    });
+    CARDINAL_PARSE_ENTRY(o, fiddle_obj, "fall_sprite", function(value) {
         return opt_and_then(value, string_to_asset);
     });
     CARDINAL_PARSE_ENTRY(o, fiddle_obj, "flipper", function(data) {
@@ -335,12 +359,27 @@ function create_furniture_prototype(object_id, fiddle_obj) {
         o.window_tiles = undefined;
     }
 
+    if is_struct(fiddle_obj.light_always_on) {
+        o.light_always_on = {
+            continual_on_sound: opt_and_then(fiddle_obj.light_always_on[$ "continual_on_sound"], audio_asset_assert_exists),
+            light: opt_and_then(fiddle_obj.light_always_on[$ "light"], string_to_light),
+            light_offset: opt_and_then(fiddle_obj.light_always_on[$ "light_offset"], fiddle_deserialize_vec2) ?? Vec2(),
+        };
+    } else {
+        o.light_always_on = undefined;
+    }
+
     if is_struct(fiddle_obj.animal_toy) {
         o.animal_toy = {
             species: deserialize_array_bool(fiddle_obj.animal_toy.species, string_to_animal_kind, AnimalKind.LEN),
+            centered_pets: fiddle_obj.animal_toy[$ "centered_pets"] == undefined
+                ? array_bool(PetKind.LEN)
+                : deserialize_array_bool(fiddle_obj.animal_toy.centered_pets, string_to_pet_kind, PetKind.LEN),
             active_animation: string_to_asset(fiddle_obj.animal_toy.active_animation),
+            animal_idle: fiddle_obj.animal_toy[$ "animal_idle"],
             inhibit_depth: fiddle_obj.animal_toy.inhibit_depth,
             inhibit_shadow: fiddle_obj.animal_toy.inhibit_shadow,
+            active_sfx: fiddle_obj.animal_toy[$ "active_sfx"],
             attach_points: {
                 left: array_map(fiddle_obj.animal_toy.attach_points.left, function(v) {
                     var tango = v[$ "tango"];
@@ -366,6 +405,20 @@ function create_furniture_prototype(object_id, fiddle_obj) {
                         play_animation: v[$ "play_animation"],
                         tango,
                     }
+                }),
+                center: opt_and_then(fiddle_obj.animal_toy.attach_points[$ "center"], function(val) {
+                    return array_map(val, function(v) {
+                        var tango = v[$ "tango"];
+                        if tango != undefined {
+                            audio_asset_assert_exists(tango);
+                        }
+                        return {
+                            offset: fiddle_deserialize_vec2(v.offset),
+                            celebrate: v[$ "celebrate"] ?? false,
+                            play_animation: v[$ "play_animation"],
+                            tango,
+                        }
+                    })
                 }),
             },
             extra_renderer: opt_and_then(fiddle_obj.animal_toy[$ "extra_renderer"], function(v) {
@@ -633,6 +686,10 @@ function write_furniture_to_location(grid, xx, yy, proto, stack_count, rotation=
                 node.destructable = false;
             }
 
+            if proto.bed_kind != undefined {
+                grid.node_furniture_footstep[? this_cell_node] = FootstepKind.Carpet;
+            }
+
             if proto.footstep != undefined {
                 grid.node_furniture_footstep[? this_cell_node] = proto.footstep;
             }
@@ -677,13 +734,12 @@ function write_furniture_to_location(grid, xx, yy, proto, stack_count, rotation=
         node.is_on = false;
     }
 
-    //
-    if node.object_id == ObjectId.EspressoMachine {
-        node.can_make_espresso = true;
-    }
-
     if node.object_id == ObjectId.TesseraeTree {
         node.day_count = 0;
+    }
+
+    if node.object_id == ObjectId.JunipersProtectionScroll {
+        ARI.has_protection_scroll = true;
     }
 
     if node.prototype.is_date_photo {
@@ -692,6 +748,10 @@ function write_furniture_to_location(grid, xx, yy, proto, stack_count, rotation=
 
     if node.prototype.bed_kind == BedKind.Double {
         T2R.write("ari_has_double_bed_placed", true);
+    }
+
+    if node.prototype.write_flag != undefined {
+        T2R.write(node.prototype.write_flag, true);
     }
 
     //
@@ -782,10 +842,10 @@ function write_furniture_to_location(grid, xx, yy, proto, stack_count, rotation=
             IN_HOUSE_STAIR_SEGMENT = true;
             var success_object = GRIDS[corresponding_room].write_node(node.top_left_x, node.top_left_y, node.prototype.house_stairs.paired_object, rotation);
             if success_object == undefined {
-                if !DEBUG_ASSERTIONS {
-                    error("Failed to write the upper staircase! This could be a game-breaking error");
-                } else {
+                if DEBUG_ASSERTIONS {
                     crash("failed to write upper staircase!");
+                } else {
+                    error("Failed to write the upper staircase! This could be a game-breaking error");
                 }
             }
             IN_HOUSE_STAIR_SEGMENT = false;
@@ -833,8 +893,9 @@ function create_furniture_renderer(node) {
     var sprite = cardinal_data.sprite;
     var mirror_these_sprites = cardinal_data.flipper == -1;
 
-    if CALENDAR.season() == Season.Winter && cardinal_data[$ "winter_sprite"] != undefined {
-        sprite = cardinal_data.winter_sprite;
+    var seasonal_override = cardinal_data[format("{Season}_sprite", CALENDAR.season())];
+    if seasonal_override != undefined {
+        sprite = seasonal_override;
     }
 
     var renderer_position = position_for_furniture_renderer(node);
@@ -846,7 +907,7 @@ function create_furniture_renderer(node) {
             //
             var wall_shadow = undefined;
             with obj_shadow_level {
-                if self[$ "wall_shadow"] {
+                if self["wall_shadow"] {
                     wall_shadow = self;
                     break;
                 }
@@ -939,6 +1000,15 @@ function create_furniture_renderer(node) {
         node.renderer.sound_controller = new SoundInstanceController(
             TANGO.play(node.prototype.continual_sound, node.renderer.x, node.renderer.y)
         );
+    }
+
+    if node.prototype.restoration != undefined || matches(
+        node.prototype.object_id,
+        ObjectId.JunipersProtectionScroll,
+        ObjectId.CaldarusDragonswornStatue,
+    ) {
+        node.renderer.interact("misc_local/inspect");
+        setup_box_interaction = true;
     }
 
     if node.prototype.soup_pot != undefined {
@@ -1044,6 +1114,21 @@ function create_furniture_renderer(node) {
         }
     }
 
+    if node.prototype.light_always_on != undefined {
+        if node.prototype.light_always_on.continual_on_sound != undefined {
+            node.renderer.sound_controller = new SoundInstanceController(TANGO.play(node.prototype.light_always_on.continual_on_sound, node.renderer.x, node.renderer.y));
+        }
+
+        node.renderer.light = instance_create_layer(
+            node.renderer.x + node.prototype.light_always_on.light_offset.x,
+            node.renderer.y + node.prototype.light_always_on.light_offset.y,
+            "Lighting",
+            par_light
+        );
+        node.renderer.light.tiered_light = node.prototype.light_always_on.light;
+        node.renderer.light.sprite_index = LIGHTS[node.renderer.light.tiered_light][0];
+    }
+
     if node.prototype.bird_perch != undefined {
         node.renderer.linked_object = instance_create_depth(
             node.renderer.x + node.prototype.bird_perch.x,
@@ -1074,6 +1159,15 @@ function create_furniture_renderer(node) {
                         self.renderer.x,
                         self.renderer.y
                     );
+
+                    if self.prototype.object_id == ObjectId.Apiary && chance_percent(15) {
+                        drop_item(
+                            ItemId.Honeycomb,
+                            self.renderer.x,
+                            self.renderer.y
+                        );
+                    }
+
                     TANGO.play("SoundEffects/Inventory/RewardDropAddition");
                     self.production_request = undefined;
                     self.day_count = 0;
@@ -1171,6 +1265,9 @@ function create_furniture_renderer(node) {
     if node.prototype.fence {
         node.renderer.image_speed = 0;
         node.renderer.image_index = node.fence_image_index;
+        if node.renderer.shadow_caster != undefined {
+            shadow_caster_set_image(node.renderer.shadow_caster, node.fence_image_index);
+        }
         node.renderer.preview_fence_idx = undefined;
 
         if node[$ "deploy_poof"] == TICK {
@@ -1204,7 +1301,7 @@ function create_furniture_renderer(node) {
                 play_conversation_from_path(NpcId.Adeline, GAMEPLAY_CONVERSATIONS[GpTriggeredConversation.InspectSeedMaker]);
             }
         );
-        node.renderer.animation_end_callback = method(node.renderer, function() {
+        node.renderer.give_animation_end_callback(function() {
             if self.sprite_index == spr_object_seed_maker_main_bounce {
                 self.sprite_index = spr_object_seed_maker_main_idle;
             }
@@ -1213,7 +1310,7 @@ function create_furniture_renderer(node) {
 
     if node.prototype.essence_machine != undefined {
         node.renderer.image_speed = 0;
-        node.renderer.animation_end_callback = method(node.renderer, function() {
+        node.renderer.give_animation_end_callback(function() {
             self.image_index = 0;
             self.image_speed = 0;
         });
@@ -1298,8 +1395,52 @@ function create_furniture_renderer(node) {
         setup_box_interaction = true;
     }
 
+    if node.prototype.is_crystal_resonator {
+        node.renderer.interact("misc_local/use");
+        setup_box_interaction = true;
+    }
+
     if node.object_id == ObjectId.Mailbox {
         node.renderer.interact("misc_local/read_mail");
+        setup_box_interaction = true;
+    }
+
+    if node.object_id == ObjectId.BabyCradle {
+        node.renderer.highlight_interactable = true;
+        register_interactable(node.renderer);
+        node.renderer.register_interaction(
+            InputId.Interact,
+            "misc_local/place_child",
+            method(node.renderer, function() {
+                return interact(self.node);
+            }),
+            method(node.renderer, function() {
+                return ARI.held_child() != undefined;
+            }),
+        );
+        node.renderer.register_interaction(
+            InputId.Interact,
+            "misc_local/hold_child",
+            method(node.renderer, function() {
+                return interact(self.node);
+            }),
+            method(node.renderer, function() {
+                //
+                //
+                //
+                if ARI.held_child() != undefined {
+                    return false;
+                }
+
+                for (var i = 0; i < array_length(ARI.children); i++) {
+                    if ARI.children[i].location == ChildLocation.InCradle {
+                        return true;
+                    }
+                }
+
+                return false;
+            }),
+        );
         setup_box_interaction = true;
     }
 
@@ -1393,8 +1534,10 @@ function create_furniture_renderer(node) {
             shadow_maps: undefined,
             render_outlines: false,
             target_shadow_grid: new ShadowGrid(true),
-            write_z: true,
         });
+        if DEBUG_TOOLS {
+            node.renderer.shadow_level.name = format("{ObjectId}_shadows", node.object_id);
+        }
         node.renderer.shadow_level.shadow_area = [
             node.renderer.sprite_index,
             node.renderer.image_index,
@@ -1455,7 +1598,13 @@ function create_test_placement_furniture_draw_info(xx, yy, object_id, rotation, 
     yy += rot_data.offset.y;
 
     //
-    furniture_renderer.sprite_index = proto.cardinal_data[calc_rot].sprite;
+    var spr = proto.cardinal_data[calc_rot].sprite;
+    var seasonal_override = proto.cardinal_data[calc_rot][format("{Season}_sprite", CALENDAR.season())];
+    if seasonal_override != undefined {
+        spr = seasonal_override;
+    }
+    furniture_renderer.sprite_index = spr;
+
     //
     if proto.fence
         && GRID.try_node_index_for_cell(xx, yy) != undefined
@@ -1537,6 +1686,11 @@ function create_test_placement_furniture_draw_info(xx, yy, object_id, rotation, 
         && (object_id != ObjectId.OcarinaSpriteStatue || (g.parent_node != undefined && g.parent_node.object_id == ObjectId.OcarinaSpriteStatueBase));
 
     furniture_renderer.z = z_off;
+    if array_length(proto.cardinals) > 1 {
+        output.render_arrow = calc_rot;
+    } else {
+        output.render_arrow = undefined;
+    }
 
     if proto.can_be_child {
         furniture_renderer.x += x_off_sub;
@@ -1572,12 +1726,12 @@ function create_test_placement_furniture_draw_info(xx, yy, object_id, rotation, 
     }
 
     //
-    draw_test_placement_furniture_bounds(xx, yy, rot_data, delta_rot, rotation_matrix, proto, output.cursor_data);
+    draw_test_placement_furniture_bounds(xx, yy, rot_data, delta_rot, rotation_matrix, proto, output);
 
     return output;
 }
 
-function draw_test_placement_furniture_bounds(xx, yy, rot_data, delta_rot, rotation_matrix, proto, cursor_data) {
+function draw_test_placement_furniture_bounds(xx, yy, rot_data, delta_rot, rotation_matrix, proto, output) {
     var nx = xx + abs(rot_data.transform.x);
     var ny = yy + abs(rot_data.transform.y);
 
@@ -1624,6 +1778,11 @@ function draw_test_placement_furniture_bounds(xx, yy, rot_data, delta_rot, rotat
         break;
     }
 
+    var min_x = infinity;
+    var min_y = infinity;
+    var max_x = 0;
+    var max_y = 0;
+
     for (var i = low_iter_start_x; i < (proto.size.x + high_iter_add_x); i++) {
         for (var j = low_iter_start_y; j < (proto.size.y + high_iter_add_y); j++) {
             rot_data.offset.set_val(i - rot_data.center.x, j - rot_data.center.y);
@@ -1656,7 +1815,12 @@ function draw_test_placement_furniture_bounds(xx, yy, rot_data, delta_rot, rotat
                 continue;
             }
 
-            cursor_data.push({
+            min_x = min(min_x, posx * 8 - 4);
+            min_y = min(min_y, posy * 8 - 4);
+            max_x = max(max_x, posx * 8 - 4);
+            max_y = max(max_y, posy * 8 - 4);
+
+            output.cursor_data.push({
                 part_x: part_x,
                 part_y: part_y,
                 pos_x: posx * 8 - 4,
@@ -1664,6 +1828,12 @@ function draw_test_placement_furniture_bounds(xx, yy, rot_data, delta_rot, rotat
             });
         }
     }
+
+    output.top_left_x = min_x;
+    output.top_left_y = min_y;
+
+    output.bot_right_x = max_x;
+    output.bot_right_y = max_y;
 }
 
 //
@@ -1728,8 +1898,8 @@ function bed_sleep_offset(object_id, for_spouse=false) {
     var target_x = (ds_grid_width(prototype.collision_grid) * 8) / 2;
 
     if ARI.has_spouse() {
-        static OFFSET_FROM_SPOUSE = -12;
-        target_x += OFFSET_FROM_SPOUSE * (for_spouse ? -1 : 1);
+        var offset = prototype.bed_kind == BedKind.Double ? 10 : 6;
+        target_x += offset * (for_spouse ? 1 : -1);
     }
 
     return Vec2(target_x, height * 8 + 4);
@@ -1907,17 +2077,46 @@ function position_for_furniture_renderer(node) {
     };
 }
 
+function furniture_arrow_offset(direction, min_x, min_y, max_x, max_y) {
+    var render_point_x = 0;
+    var render_point_y = 0;
+
+    var spr = undefined;
+    var mid_x = 0.5 * (max_x + min_x);
+    var mid_y = 0.5 * (max_y + min_y);
+
+    switch direction {
+        case Cardinal.East:
+            spr = spr_cursor_furniture_direction_indicator_indicator_east;
+            render_point_x = max_x + 6;
+            render_point_y = mid_y + 2;
+            break;
+        case Cardinal.West:
+            spr = spr_cursor_furniture_direction_indicator_indicator_west;
+            render_point_x = min_x + 2;
+            render_point_y = mid_y + 3;
+            break;
+        case Cardinal.North:
+            spr = spr_cursor_furniture_direction_indicator_indicator_north;
+            render_point_x = mid_x + 4;
+            render_point_y = min_y + 2;
+            break;
+        case Cardinal.South:
+            spr = spr_cursor_furniture_direction_indicator_indicator_south;
+            render_point_x = mid_x + 4;
+            render_point_y = max_y + 6;
+            break;
+    }
+
+    return [spr, render_point_x, render_point_y];
+}
+
 //
 function activity_position_for_node(node, dir, activity_index) {
     var positions = node.prototype.activities[activity_index].positions;
     var pos = position_for_furniture_renderer(node);
     var off = positions[irandom(array_length(positions) - 1)];
-    if dir == Cardinal.West {
-        var e = off[Cardinal.East];
-        return Vec2(-e.x + pos.x, e.y + pos.y);
-    } else {
-        return off[dir].add(pos);
-    }
+    return off[dir].add(pos);
 }
 
 //
@@ -1939,7 +2138,14 @@ function furniture_chest_add_items(items_list, chest) {
     chest.renderer.sprite_index = chest.prototype.interaction_chest.bounce_sprite;
 
     for (var i = 0; i < items_list.count(); i++) {
-        chest.inventory.add(items_list.get(i));
+        var item = items_list.get(i);
+        if chest.inventory.add(item) > 0 {
+            if ARI.inventory.can_add(item) {
+                ARI.inventory.add(item);
+            } else {
+                drop_item(item, obj_ari.x, obj_ari.y);
+            }
+        }
     }
 }
 
@@ -1956,7 +2162,9 @@ function auto_tile_fence(grid, xx, yy) {
     var new_index = inner_fence_auto_tile(grid, grid.node_top_left_x[ni], grid.node_top_left_y[ni], grid.node_object_id[ni], grid.node_parent[ni][$ "blueprint_fingerprint"]);
     grid.node_parent[ni].fence_image_index = new_index;
 
-    if grid.node_parent[ni].renderer != undefined && instance_exists(grid.node_parent[ni].renderer) {
+    if grid.node_parent[ni].renderer != undefined
+        && instance_exists(grid.node_parent[ni].renderer)
+    {
         grid.node_parent[ni].renderer.image_index = new_index;
         if grid.node_parent[ni].parent_grid.parent_node == undefined
             && grid.node_parent[ni].renderer.shadow_caster != undefined
@@ -1967,7 +2175,7 @@ function auto_tile_fence(grid, xx, yy) {
 }
 
 function inner_fence_auto_tile(grid, xx, yy, key_id, blueprint_fingerprint, north_override, west_override, south_override, east_override) {
-    static LOCATION_HAS_ME_THERE = function(grid, xx, yy, key_id, blueprint_fingerprint) {
+    var location_has_me_there = function(grid, xx, yy, key_id, blueprint_fingerprint) {
         var oi = grid.try_node_index_for_cell(xx, yy);
         return oi != undefined
             && grid.node_object_id[oi] == key_id
@@ -1976,10 +2184,10 @@ function inner_fence_auto_tile(grid, xx, yy, key_id, blueprint_fingerprint, nort
             && grid.node_parent[oi][$ "blueprint_fingerprint"] == blueprint_fingerprint;
     }
 
-    var north = north_override ?? LOCATION_HAS_ME_THERE(grid, xx, yy - 2, key_id, blueprint_fingerprint);
-    var west = west_override ?? LOCATION_HAS_ME_THERE(grid, xx - 2, yy, key_id, blueprint_fingerprint);
-    var south = south_override ?? LOCATION_HAS_ME_THERE(grid, xx, yy + 2, key_id, blueprint_fingerprint);
-    var east = east_override ?? LOCATION_HAS_ME_THERE(grid, xx + 2, yy, key_id, blueprint_fingerprint);
+    var north = north_override ?? location_has_me_there(grid, xx, yy - 2, key_id, blueprint_fingerprint);
+    var west = west_override ?? location_has_me_there(grid, xx - 2, yy, key_id, blueprint_fingerprint);
+    var south = south_override ?? location_has_me_there(grid, xx, yy + 2, key_id, blueprint_fingerprint);
+    var east = east_override ?? location_has_me_there(grid, xx + 2, yy, key_id, blueprint_fingerprint);
 
     //
     return (1 * north) + (2 * west) + (4 * east) + (8 * south);
@@ -2070,4 +2278,33 @@ function sprinkler_exit_room() {
             }
         }
     }
+}
+
+//
+//
+//
+//
+//
+function animals_using_toy(node) {
+    var count = 0;
+
+    //
+    with obj_player_animal {
+        if self.fsm.current_state_id() == AnimalState.UsingToy
+            && self.fsm.current_state().toy == node
+        {
+            count += 1;
+        }
+    }
+
+    //
+    with obj_pet {
+        if self.fsm.current_state_id() == PetState.UsingToy
+            && self.fsm.current_state().toy == node
+        {
+            count += 1;
+        }
+    }
+
+    return count;
 }

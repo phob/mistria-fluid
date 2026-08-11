@@ -172,6 +172,10 @@ function get_modified_component_count(component, context, item_id) {
                         temp_duration = clamp(temp_duration - minutes(10), 0, I32_MAX);
                         GAME_STATS.perks[$ perk_to_string(Perk.HammerTimingThree)] += 1;
                     }
+                    if ARI.perk_active(Perk.HammerTimingFour) {
+                        temp_duration = clamp(temp_duration - minutes(10), 0, I32_MAX);
+                        GAME_STATS.perks[$ perk_to_string(Perk.HammerTimingFour)] += 1;
+                    }
                     break;
 
                 case RecipeContext.Blacksmithing:

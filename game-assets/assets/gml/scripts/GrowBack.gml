@@ -33,6 +33,9 @@ function GrowBack() constructor {
 }
 
 function grow_back_new_day(farm_grid) {
+    if ARI.perk_active(Perk.DeliberateDebrisTwo) {
+        return;
+    }
     //
     var grid_dims_x = farm_grid.dims.x;
     var grid_dims_y = NORMAL_FARM_EDGE_Y;

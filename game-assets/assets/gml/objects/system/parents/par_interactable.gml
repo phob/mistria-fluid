@@ -3,6 +3,7 @@ object_create(
     undefined,
     {
         sprite_index: undefined,
+        selection_priority: 0,
         create: function() {
             self.highlighter = new Highlighter();
             self.bouncer = new InteractBouncer();

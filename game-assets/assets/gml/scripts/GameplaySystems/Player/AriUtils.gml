@@ -67,6 +67,7 @@ enum EndOfDayStatus {
     Normal,
     Fainted,
     Died,
+    Protected,
 }
 
 enum HoldToUseStatus {
@@ -77,6 +78,29 @@ enum HoldToUseStatus {
 
 function wake_up_sequence() {
     if DEBUG_TOOLS && environment_get_variable("FOM_QUICK_CMD") != undefined {
+        return;
+    }
+
+    //
+    if CALENDAR.time == ARI.wedding_date {
+        ARI.end_of_day_status = undefined;
+        MIST.request_scene("wedding");
+        return;
+    }
+
+    if ARI.pending_child != undefined && ARI.pending_child.due_date <= CALENDAR.time {
+        ARI.end_of_day_status = undefined;
+        switch ARI.pending_child.utero {
+            case Utero.Ari:
+                MIST.request_scene("player_delivery");
+                break;
+            case Utero.Spouse:
+                MIST.request_scene("spouse_delivery");
+                break;
+            case Utero.Stork:
+                MIST.request_scene("stork_delivery");
+                break;
+        }
         return;
     }
 
@@ -93,7 +117,7 @@ function wake_up_sequence() {
     obj_ari.par.unset_modifier(AnimationName.Pickup);
     update_depth_items(obj_ari);
 
-    if eod != EndOfDayStatus.Normal {
+    if !matches(eod, EndOfDayStatus.Normal, EndOfDayStatus.Protected) {
         //
         //
         Game.animal_eat = true;
@@ -123,8 +147,8 @@ function wake_up_sequence() {
                 ARI.held_item_last_frame = undefined;
 
                 with par_NPC {
-                    if self.me.is_spouse() {
-                        self.me.set_animation("idle");
+                    if self.me.is_roommate() {
+                        self.me.brain.blackboard.insert("set_can_talk_on_arrival", true);
                     }
                 }
                 return true;
@@ -137,10 +161,12 @@ function wake_up_sequence() {
             obj_ari.fsm.change_state(PlayerState.Default);
         });
     } else {
-        c.append(LinkId.Function, function() {
+        c.append(LinkId.Function, function(eod) {
             obj_ari.set_animation(AnimationName.Idle);
-            obj_ari.bark_emitter.emit(BarkId.Annoyed, BarkType.Thought, true);
-        })
+            if eod != EndOfDayStatus.Protected {
+                obj_ari.bark_emitter.emit(BarkId.Annoyed, BarkType.Thought, true);
+            }
+        }, [eod])
         .append(LinkId.Await, function() {
             return !obj_ari.bark_emitter.is_barking();
         })
@@ -151,6 +177,16 @@ function wake_up_sequence() {
             });
         }, [eod]);
     }
+
+    c.append(LinkId.Function, function() {
+        var photo_id = ARI.quest_artifacts.try_take("wedding_photo_index");
+        if photo_id != undefined {
+            var photo_card = new LiveItem(DATES[Date.Wedding].photo_item);
+            photo_card.date_photo = array_length(DATE_PHOTOS) - 1;
+            ARI.give_item(photo_card);
+            spawn_date_photo(photo_card.date_photo);
+        }
+    });
 
     c.append(LinkId.Function, function() {
         ARI.end_of_day_status = undefined;
@@ -318,10 +354,36 @@ function player_home_safe_position(location_id) {
     }
 }
 
-function create_default_mount() {
-    var animal = new NonPlayerAnimal(AnimalKind.Horse, "mistmare", Sex.Male);
+//
+function player_home_random_position(location_id) {
+    static MAX_ATTEMPTS = 100;
+    var grid = GRIDS[location_id];
+    var boundary = undefined;
+    if location_id == LocationId.PlayerHome {
+        boundary = DECOR.size_upgrade == HomeUpgrade.Small
+            ? [11, 13, 34, 28]
+            : [7, 13, 38, 36];
+    } else if is_home_location(location_id) {
+        boundary = [11, 13, 34, 40];
+    } else {
+        boundary = [0, 0, grid.dims.x - 1, grid.dims.y - 1];
+    }
+    for (var i = 0; i < MAX_ATTEMPTS; i++) {
+        var xx = irandom_range(boundary[0], boundary[2]);
+        var yy = irandom_range(boundary[1], boundary[3]);
+        var ni = grid.node_index_for_cell(xx, yy);
+        if grid.node_collideable[ni] == false {
+            return Vec2(xx * 8 , yy * 8);
+        }
+    }
+
+    return player_home_safe_position(location_id);
+}
+
+function create_default_mount(kind) {
+    var animal = new NonPlayerAnimal(AnimalKind.Horse, kind, Sex.Male);
     animal.days_old = 10;
-    animal.name = local_get("misc_local/mistmare");
+    animal.name = local_get(format("misc_local/{}", kind));
     return animal;
 }
 
@@ -521,7 +583,7 @@ function date_eligible_for_wedding(time) {
         return false;
     }
 
-    if !is_between_inclusive(time, ARI.proposal_date + days(3), ARI.proposal_date + days(14)) {
+    if !is_between_inclusive(time, ARI.proposal_date + days(5), ARI.proposal_date + days(14)) {
         return false;
     }
 
@@ -531,15 +593,23 @@ function date_eligible_for_wedding(time) {
 function process_proposal(fiance) {
     T2R.write(format("{NpcId}_status", fiance), "fiance");
     ARI.proposal_date = CALENDAR.time;
-    for (var i = 0; i < NpcId.LEN; i++) {
-        var npc = NPCS[i];
-        if npc.is_dating() {
-            T2R.write(format("{NpcId}_status", i), "best_friend");
-            T2R.write(format("{NpcId}_is_ex", i), true);
-        }
+    if !ARI.disable_break_ups {
+        for (var i = 0; i < NpcId.LEN; i++) {
+            var npc = NPCS[i];
+            if npc.is_dating() {
+                T2R.write(format("{NpcId}_status", i), "best_friend");
+                T2R.write(format("{NpcId}_is_ex", i), true);
+            }
 
-        npc.report_relationship();
+            npc.report_relationship();
+        }
     }
+
+    t2_write_world_fact("disabled_break_up_content", ARI.disable_break_ups || ARI.disable_break_up_letters);
+    t2_write_world_fact("proposed_today", true);
+
+    remove_item_from_world(ItemId.EngagementRing);
+    ARI.recipe_unlocks[ItemId.EngagementRing] = false;
 
     ARI.wedding_date = ARI.proposal_date;
     while !date_eligible_for_wedding(ARI.wedding_date) {
@@ -549,6 +619,7 @@ function process_proposal(fiance) {
     spawn_calendar_ui(ARI.wedding_date)
         .with_filter(date_eligible_for_wedding)
         .with_today(CALENDAR.time)
+        .with_banner("misc_local/select_your_wedding_day")
         .enable_selection(function(ui) {
             var popup = popup_creator(
                 "misc_local/confirmation",
@@ -572,4 +643,36 @@ function process_marriage(spouse) {
     T2R.write(format("{NpcId}_status", spouse), "spouse");
     NPCS[spouse].report_relationship();
     report_children_facts();
+}
+
+//
+//
+function build_obj_ari_par_from(preset) {
+    with obj_ari {
+        ARI.animation_assets().assets.for_each(function(asset) {
+            self.par.remove_asset(asset.name);
+        });
+        preset.apply_to_par(self.par);
+
+        handle_child_on_par(self.par);
+    }
+}
+
+//
+function handle_child_on_par(par) {
+    if ARI == undefined {
+        return;
+    }
+    var child = ARI.held_child();
+    if child != undefined {
+        par.slots[AnimationSlot.BackGear].asset = undefined;
+        par.slots[AnimationSlot.BackGear].lut_data = undefined;
+
+        par.set_asset(child.get_player_asset(), 1);
+    } else {
+        for (var i = 0; i < array_length(ARI.children); i++) {
+            var child = ARI.children[i];
+            par.remove_asset(child.get_player_asset());
+        }
+    }
 }

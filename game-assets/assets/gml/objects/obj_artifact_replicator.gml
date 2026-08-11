@@ -7,7 +7,7 @@ object_create(
             event_inherit(ObjectEvent.Create);
 
             var requirement = array_create(Requirement.LEN, undefined);
-            requirement[Requirement.FinishedMuseumSetWithin] = [MuseumWing.Archaeology];
+            requirement[Requirement.CompletedMuseumSetWithin] = [MuseumWing.Archaeology];
             if !requirements_pass(requirement) {
                 instance_destroy();
                 return;

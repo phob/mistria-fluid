@@ -132,8 +132,9 @@ function write_blueprint_to_location(grid, xx, yy, blueprint_id, item_id) {
         output.blueprint_fingerprint = blueprint_fingerprint;
         output.blueprint_spawner = item_id;
 
-        if grid.location_id == CURRENT_LOCATION_ID {
-            output.renderer.shadow_caster = SHADOW_GRID.caster_create(output.renderer.x, output.renderer.y);
+        if grid.location_id == CURRENT_LOCATION_ID
+            && output.renderer.shadow_caster != undefined
+        {
             output.renderer.set_sprite(output.renderer.sprite_index);
         }
 

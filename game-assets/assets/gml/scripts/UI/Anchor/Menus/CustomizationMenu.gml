@@ -1,7 +1,7 @@
 #macro ARI_NAME_MAX_WIDTH 143
 #macro FARM_NAME_MAX_WIDTH 143
 
-function CustomizationMenu(journal_nodes, ari, preset_override) : AnchorMenu(Menu.Customization) constructor {
+function CustomizationMenu(journal_nodes, ari, preset_override, creation_behavior=false) : AnchorMenu(Menu.Customization) constructor {
 
     function slot_has_new_cosmetics(par_ui_slot) {
         if is_menu_room(room()) {
@@ -58,15 +58,15 @@ function CustomizationMenu(journal_nodes, ari, preset_override) : AnchorMenu(Men
                 .set_align(Align.Center, Align.Middle)
                 .set_lut(spr_player_base_lut, self.active_preset.skin_tone);
 
-            slot.asset_icon = ANCHOR.sprite(slot.body)
+            slot.asset_icon = ANCHOR.sprite(slot, slot.body.get_z() - 1)
                 .set_align(Align.Center, Align.Middle)
 
-            slot.empty_icon = ANCHOR.sprite(slot.body)
+            slot.empty_icon = ANCHOR.sprite(slot, slot.body.get_z() - 1)
                 .set_align(Align.Center, Align.Middle)
                 .set_sprites_from_key(SLOT_ICON_KEY(par_ui_slot))
                 .set_key_sprite_target(slot)
 
-            slot.alert = ANCHOR.sprite(slot)
+            slot.alert = ANCHOR.sprite(slot, slot.asset_icon.get_z() - 1)
                 .set_sprite(spr_ui_journal_customization_new_unlock_icon)
                 .set_align(Align.RightIn, Align.TopIn)
                 .disable()
@@ -81,8 +81,8 @@ function CustomizationMenu(journal_nodes, ari, preset_override) : AnchorMenu(Men
         self.override_music = false;
 
         self.slots = [];
-        var slot_inc = 24;
-        var right_side_x = 114;
+        var slot_inc = 25;
+        var right_side_x = 123;
         self.slots[ParUiSlot.HeadGear] = create_slot(ParUiSlot.HeadGear, 0, 0);
         self.slots[ParUiSlot.FaceGear] = create_slot(ParUiSlot.FaceGear, slot_inc, 0);
         self.slots[ParUiSlot.Top] = create_slot(ParUiSlot.Top, right_side_x, 0);
@@ -96,37 +96,72 @@ function CustomizationMenu(journal_nodes, ari, preset_override) : AnchorMenu(Men
         self.slots[ParUiSlot.FacialHair] = create_slot(ParUiSlot.FacialHair, 0, slot_inc * 2);
         self.slots[ParUiSlot.Skin] = create_slot(ParUiSlot.Skin, slot_inc, slot_inc * 2);
 
-        if self.preset_override == undefined {
-            self.preset_button = ANCHOR.nine_slice(self.player_slot_root)
-                .set_xy(right_side_x, slot_inc * 2)
-                .set_sprites_from_key("spr_ui_button")
-                .set_size(46, 22)
-                .set_label("preset_button")
-                .set_tap_callback(function() {
-                    self.reset_right_page();
-                    self.preset_popup = popup_creator("misc_local/select_a_preset");
-                    self.preset_popup.backplate.set_size(230, 164);
-                    self.preset_popup.slot_base = ANCHOR.positional(self.preset_popup.backplate)
-                        .set_size(self.preset_popup.backplate.get_size())
-                    self.generate_preset_popup_body();
-                    self.preset_popup.spawn();
-                })
-                .add_to_pilot(self.left_pilot, true)
-                .add_hover_outline()
 
-            ANCHOR.sprite(preset_button)
-                .set_align(Align.Center, Align.Middle)
-                .set_sprites_from_key("spr_ui_journal_customization_outfit_button_icon")
-                .set_key_sprite_target(preset_button)
+        var arrow_left_button = ANCHOR.nine_slice(self.player_slot_root)
+            .set_sprites_from_key("spr_ui_calendar_button_spring")
+            .set_size(16)
+            .set_tap_sound("SoundEffects/UI/UIJournalTabSwitch")
+            .set_xy(slot_inc * 2, slot_inc * 2 + 6)
+            .add_hover_outline()
+            .add_to_pilot(self.left_pilot)
+            .set_tap_callback(function() {
+                self.active_par.set_cardinal(wrap(self.active_par.cardinal - 1, Cardinal.LEN));
+            })
+
+        var arrow_left_icon = ANCHOR.sprite(arrow_left_button)
+            .set_align(Align.Center, Align.Middle)
+            .set_sprites_from_key("spr_ui_calendar_left_arrow_spring")
+            .set_key_sprite_target(arrow_left_button)
+
+        var arrow_right_button = ANCHOR.nine_slice(self.player_slot_root)
+            .set_sprites_from_key("spr_ui_calendar_button_spring")
+            .set_size(16)
+            .set_tap_sound("SoundEffects/UI/UIJournalTabSwitch")
+            .set_xy(right_side_x - slot_inc + 6, slot_inc * 2 + 6)
+            .add_hover_outline()
+            .add_to_pilot(self.left_pilot)
+            .set_tap_callback(function() {
+                self.active_par.set_cardinal(wrap(self.active_par.cardinal + 1, Cardinal.LEN));
+            })
+
+        var arrow_right_icon = ANCHOR.sprite(arrow_right_button)
+            .set_align(Align.Center, Align.Middle)
+            .set_sprites_from_key("spr_ui_calendar_right_arrow_spring")
+            .set_key_sprite_target(arrow_right_button)
+
+
+        self.preset_button = ANCHOR.nine_slice(self.player_slot_root)
+            .set_xy(right_side_x, slot_inc * 2)
+            .set_sprites_from_key("spr_ui_button")
+            .set_size(47, 22)
+            .set_label("preset_button")
+            .add_to_pilot(self.left_pilot, true)
+            .add_hover_outline()
+
+        if self.preset_override == undefined {
+            self.preset_button.set_tap_callback(function() {
+                self.reset_right_page();
+                self.preset_popup = popup_creator("misc_local/select_a_preset");
+                self.preset_popup.backplate.set_size(230, 164 + self.preset_popup.title_overflow());
+                self.preset_popup.slot_base = ANCHOR.positional(self.preset_popup.backplate)
+                    .set_size(self.preset_popup.backplate.get_size())
+                self.generate_preset_popup_body();
+                self.preset_popup.spawn();
+            });
         } else {
-            self.left_pilot.add_empty();
-            self.left_pilot.request_newline();
+            self.preset_button.set_soft_locked();
         }
+
+        ANCHOR.sprite(preset_button)
+            .set_align(Align.Center, Align.Middle)
+            .set_sprites_from_key("spr_ui_journal_customization_outfit_button_icon")
+            .set_key_sprite_target(preset_button)
 
         self.update_slots(self.active_preset);
 
-        var ari = ANCHOR.create_ari_node(self.player_slot_root, self.active_preset, 40, 18, 2);
+        var ari = ANCHOR.create_ari_node(self.player_slot_root, self.active_preset, 45, 18, 2);
         self.active_par = ari.board_get("__par__");
+        self.active_par.set_cardinal(Cardinal.South);
 
         self.set_up_fields();
     }
@@ -177,9 +212,9 @@ function CustomizationMenu(journal_nodes, ari, preset_override) : AnchorMenu(Men
         self.birthday_field = self.fields.new_field(
             spr_ui_generic_birthday_icon,
             localize_date(self.ari.birthday, false),
-            self.preset_override == undefined ? CommonLutIndex.Green : CommonLutIndex.Blue,
+            self.creation_behavior ? CommonLutIndex.Blue : CommonLutIndex.Green,
         );
-        if self.preset_override != undefined {
+        if self.creation_behavior {
             self.birthday_field.set_tap_callback(function() {
                 var ui = spawn_calendar_ui(self.ari.birthday);
 
@@ -189,6 +224,7 @@ function CustomizationMenu(journal_nodes, ari, preset_override) : AnchorMenu(Men
                 ui
                     .show_events(false)
                     .show_year(false)
+                    .with_banner("misc_local/select_your_birthday")
                     .enable_selection(function(ui) {
                         self.ari.birthday = ui.time;
                         self.birthday_field.text_node.set_text(localize_date(self.ari.birthday, false));
@@ -217,7 +253,7 @@ function CustomizationMenu(journal_nodes, ari, preset_override) : AnchorMenu(Men
         });
         self.farm_field.set_label("farm_field");
 
-        if self.preset_override == undefined {
+        if !self.creation_behavior {
             var dating = array_any(NPCS, function(v) {
                 return v.is_dating()
             });
@@ -301,6 +337,18 @@ function CustomizationMenu(journal_nodes, ari, preset_override) : AnchorMenu(Men
                     .enable()
             }
         }
+
+        //
+        var child = ARI.held_child();
+        if child != undefined {
+            var slot = self.slots[ParUiSlot.Back];
+            slot.empty_icon.disable();
+            slot.body.set_alpha(0.5);
+            slot.asset_icon
+                .set_sprite(child.get_icon())
+                .disable_lut()
+                .enable()
+        }
     }
 
     function reset_right_page() {
@@ -347,7 +395,7 @@ function CustomizationMenu(journal_nodes, ari, preset_override) : AnchorMenu(Men
                 .set_sprite(sub_category.icon)
                 .set_xy(10, 4)
             ANCHOR.text(icon)
-                .set_xy(4, 1)
+                .set_x(4)
                 .set_align(Align.RightOut, Align.Middle)
                 .set_key(sub_category.name)
                 .set_lut(COMMON_LUT)
@@ -542,20 +590,17 @@ function CustomizationMenu(journal_nodes, ari, preset_override) : AnchorMenu(Men
                 self.handle_void_ari();
             }
         }, [update_obj_ari]);
+
+        handle_child_on_par(self.active_par);
     }
 
     function rebuild_ari() {
-        var update_obj_ari = instance_exists(obj_ari) && self.active_index == self.ari.preset_index_selected;
-        var render_hair = self.active_preset.should_render_hair();
-        self.active_preset.assets.for_each(function(asset, update_obj_ari, render_hair) {
-            self.active_par.set_asset(asset.name, asset.lut_index);
-            self.active_par.render_hair = render_hair;
-            if update_obj_ari {
-                obj_ari.par.set_asset(asset.name, asset.lut_index);
-                obj_ari.par.render_hair = render_hair;
-                self.handle_void_ari();
-            }
-        }, [update_obj_ari, render_hair]);
+        self.active_preset.apply_to_par(self.active_par);
+        handle_child_on_par(self.active_par);
+        if instance_exists(obj_ari) && self.active_index == self.ari.preset_index_selected {
+            build_obj_ari_par_from(self.active_preset);
+        }
+        self.handle_void_ari();
     }
 
     function remove_cosmetic(par_ui_slot) {
@@ -599,6 +644,7 @@ function CustomizationMenu(journal_nodes, ari, preset_override) : AnchorMenu(Men
     function ensure_modesty() {
         var xxx_content =
             self.active_par.slots[AnimationSlot.Legs].asset == undefined
+            && self.active_par.slots[AnimationSlot.LegsTop].asset == undefined
             && self.active_par.slots[AnimationSlot.Waist].asset == undefined;
         if xxx_content {
             self.equip_cosmetic("underwear_shorts");
@@ -731,6 +777,7 @@ function CustomizationMenu(journal_nodes, ari, preset_override) : AnchorMenu(Men
     self.journal.right_page.set_sprite(spr_ui_journal_book_page_layout_customization_right);
     self.ari = ari;
     self.preset_override = preset_override;
+    self.creation_behavior = creation_behavior;
     self.selected_slot = undefined;
 
     self.left_pilot = self.new_pilot()
@@ -759,8 +806,10 @@ function CustomizationMenu(journal_nodes, ari, preset_override) : AnchorMenu(Men
             }
         })
 
+    self.customization_label.set_max_width(158);
+
     self.player_slot_root = ANCHOR.positional(self.journal.left_body)
-        .set_xy(9, 4);
+        .set_xy(3, 5);
 
     self.setup_left_page(self.ari.preset_index_selected);
     ANCHOR.set_active_pilot(self.left_pilot);
@@ -814,6 +863,7 @@ function get_slot_locks_for_asset(asset_key) {
                     break;
                 case AnimationSlot.Legs:
                 case AnimationSlot.Waist:
+                case AnimationSlot.LegsTop:
                     ui_slot_to_lock = ParUiSlot.Bottom;
                     break;
                 case AnimationSlot.FaceGear:
@@ -868,7 +918,6 @@ function load_customization_ui_data() {
     var par_keys = PLAYER_ANIMATION_DATABASE.player_assets.keys();
     for (var i = 0; i < array_length(par_keys); i++) {
         var asset = PLAYER_ANIMATION_DATABASE.player_assets.get(par_keys[i]);
-        //
         if asset[$ "ui_sub_category"] == undefined {
             continue;
         }

@@ -13,7 +13,6 @@ object_create(
                     && item.prototype.use != ItemUse.UseTool
                     && item.prototype.use != ItemUse.Blueprint
                     && item.prototype.use != ItemUse.UnlockCosmetic
-                    && item.prototype.use != ItemUse.LearnRecipe
                     && item.prototype.use != ItemUse.IdentifyItem
                     && item.prototype.use != ItemUse.OpenChest
                     && item.prototype.use != ItemUse.GainGold
@@ -24,9 +23,13 @@ object_create(
                     && item.prototype.use != ItemUse.UnlockPetCosmetic
                     && item.prototype.use != ItemUse.UnlockPetSkin
                     && item.prototype.use != ItemUse.UnlockDate
+                    && item.prototype.use != ItemUse.UnlockSong
+                    && item.prototype.use != ItemUse.LearnRecipe
                     && item.prototype.use != ItemUse.Bomb //
                 {
                     items.remove(0);
+
+                    self.fsm.blackboard.insert("valid_gobble", true);
 
                     var data = get_treasure_from_distribution(self.x, self.y);
                     if data != undefined {
@@ -39,6 +42,8 @@ object_create(
                             self.fsm.blackboard.insert("secondary_items", List(data[0]));
                         }
                     }
+                } else {
+                    self.fsm.blackboard.insert("valid_gobble", false);
                 }
 
                 self.fsm.blackboard.insert("return_items", items);
@@ -202,16 +207,30 @@ object_create(
                                     item_obj.setup(List(item));
                                 }
 
-                                if ari_has_cosmetic_anywhere("head_mimic_hat") == false
-                                    && chance_percent(5)
-                                {
-                                    var item = new LiveItem(ItemId.Cosmetic);
-                                    item.cosmetic = "head_mimic_hat";
-                                    var item_obj = instance_create_layer(owner.x, owner.y, "Instances", obj_item);
-                                    item_obj.final_x = owner.x + irandom_range(-16, 16);
-                                    item_obj.final_y = owner.y + irandom_range(6, 32);
-
-                                    item_obj.setup(List(item));
+                                if self.blackboard.try_take("valid_gobble", false) {
+                                    if ari_has_cosmetic_anywhere("head_mimic_hat") == false
+                                        && chance_percent(5)
+                                    {
+                                        var item = new LiveItem(ItemId.Cosmetic);
+                                        item.cosmetic = "head_mimic_hat";
+                                        var item_obj = instance_create_layer(owner.x, owner.y, "Instances", obj_item);
+                                        item_obj.final_x = owner.x + irandom_range(-16, 16);
+                                        item_obj.final_y = owner.y + irandom_range(6, 32);
+    
+                                        item_obj.setup(List(item));
+                                    }
+    
+                                    if ari_has_pet_skin_anywhere("mimic") == false
+                                        && ARI.perk_active(Perk.FriendShaped)
+                                        && chance_percent(5)
+                                    {
+                                        var item = new LiveItem(ItemId.PetSkinMimic);
+                                        var item_obj = instance_create_layer(owner.x, owner.y, "Instances", obj_item);
+                                        item_obj.final_x = owner.x + irandom_range(-16, 16);
+                                        item_obj.final_y = owner.y + irandom_range(6, 32);
+    
+                                        item_obj.setup(List(item));
+                                    }
                                 }
                             }
                         })
@@ -230,6 +249,14 @@ object_create(
                             ae.image_idx = 5;
                             ae.image_idx_func = method(ae, function() {
                                 instance_destroy(self.owner);
+                                if game_stats_mines_floor_available() {
+                                    var key = monster_id_to_string(self.owner.monster_id);
+                                    if GS_MINES_FLOOR.enemy_kill[$ key] == undefined {
+                                        GS_MINES_FLOOR.enemy_kill[$ key] = 0;
+                                    }
+                                    GS_MINES_FLOOR.enemy_kill[$ key] += 1;
+                        
+                                }
                             });
                         })
                         .spawn()

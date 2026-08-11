@@ -11,6 +11,12 @@ global.__breeding_animal_ctx = {
 #macro ANIMAL_TOYS_IN_ROOM global.__animal_toys_in_room
 global.__animal_toys_in_room = List();
 
+enum AnimalToyPosition {
+    Left,
+    Center,
+    Right,
+}
+
 enum AnimalKind {
     Chicken,
     Cow,
@@ -547,34 +553,60 @@ function spawn_animal_toys() {
             possible_animals.push(obj_pet);
         }
 
-        //
-        if possible_animals.count() < 2 {
-            toy.animal_count = 0;
-            continue;
-        }
 
         //
         if CLOCK.time < hours(20) {
-            var left = possible_animals.remove(irandom_range(0, possible_animals.count() - 1));
-            left.fsm.blackboard.insert("toy", toy);
-            left.fsm.blackboard.insert("is_left", true);
-
-            left.fsm.change_state(left.me.is_pet ? PetState.UsingToy : AnimalState.UsingToy);
-
-            var right = possible_animals.remove(irandom_range(0, possible_animals.count() - 1));
-            right.fsm.blackboard.insert("toy", toy);
-            right.fsm.blackboard.insert("is_left", false);
-            right.fsm.change_state(left.me.is_pet ? PetState.UsingToy : AnimalState.UsingToy);
+            var left = possible_animals.remove_random();
+            var right = possible_animals.remove_random();
+            var big_guy = undefined;
 
             //
-            toy.animal_count = 2;
+            if toy.prototype.animal_toy.attach_points.center != undefined  {
+                if left != undefined && left.me.is_pet && toy.prototype.animal_toy.centered_pets[left.me.pet_kind()] {
+                    big_guy = left;
+                } else if right != undefined && right.me.is_pet && toy.prototype.animal_toy.centered_pets[right.me.pet_kind()] {
+                    big_guy = right;
+                }
+            }
 
-            //
-            toy.renderer.set_sprite(toy.prototype.animal_toy.active_animation);
+            if big_guy != undefined {
+                big_guy.fsm.blackboard.insert("toy", toy);
+                big_guy.fsm.blackboard.insert("animal_toy_position", AnimalToyPosition.Center);
+                big_guy.fsm.change_state(big_guy.me.is_pet ? PetState.UsingToy : AnimalState.UsingToy);
+                toy.animal_count = 1;
+                toy.renderer.set_sprite(toy.prototype.animal_toy.active_animation);
+            } else if left != undefined && right != undefined {
+                left.fsm.blackboard.insert("toy", toy);
+                left.fsm.blackboard.insert("animal_toy_position", AnimalToyPosition.Left);
+                left.fsm.change_state(left.me.is_pet ? PetState.UsingToy : AnimalState.UsingToy);
+
+                right.fsm.blackboard.insert("toy", toy);
+                right.fsm.blackboard.insert("animal_toy_position", AnimalToyPosition.Right);
+                right.fsm.change_state(left.me.is_pet ? PetState.UsingToy : AnimalState.UsingToy);
+
+                //
+                toy.animal_count = 2;
+                toy.renderer.set_sprite(toy.prototype.animal_toy.active_animation);
+            }
+
+            if toy.animal_count >= 1 && toy.prototype.animal_toy.active_sfx != undefined {
+                stop_animal_toy_sfx(toy);
+                toy.active_toy_sfx = TANGO.play(toy.prototype.animal_toy.active_sfx, toy.renderer.x, toy.renderer.y);
+            }
         }
     }
 
     ANIMAL_TOYS_IN_ROOM.clear();
+}
+
+//
+function stop_animal_toy_sfx(node) {
+    if node[$ "active_toy_sfx"] == undefined {
+        return;
+    }
+
+    TANGO.request_stop(node.active_toy_sfx);
+    node.active_toy_sfx = undefined;
 }
 
 function run_debug_animal_progression(day_count) {
@@ -597,8 +629,8 @@ function run_debug_animal_progression(day_count) {
 
 function animal_set_up_draw(sprites) {
     if sprites.lut != undefined {
-        shader_set_texture("u_LutTexture", sprites.lut_texture);
-        gpu_set_extra(UberShaderKind.Animal, sprites.lut_uvs[0], sprites.lut_uvs[1], real(sprites.lut_index)); 
+        shader_set_texture("u_LutTexture", sprites.lut_texture, 0, "u_LutTexelSize");
+        gpu_set_extra(UberShaderKind.Animal, sprites.lut_uvs[0], sprites.lut_uvs[1], real(sprites.lut_index));
     } else {
         gpu_set_extra(UberShaderKind.Overlay);
     }
@@ -640,9 +672,6 @@ function animal_festival_score(tier, hearts) {
 function animal_festival_selection_popup(size) {
     var ui = animal_selection_ui(size, 23);
 
-    ui.popup.canvas.set_layer_recursive(AnchorLayer.Standard);
-    ui.popup.background.background.set_layer(AnchorLayer.Hud);
-
     for (var i = 0; i < ui.entries.count(); i++) {
         var entry = ui.entries.get(i);
         var animal = entry.animal;
@@ -674,7 +703,59 @@ function animal_festival_selection_popup(size) {
                 popup.close();
             }, [animal, popup]);
 
+            confirmation.canvas.set_layer_recursive(AnchorLayer.Debug);
             confirmation.spawn();
         }, [animal, ui.popup]);
     }
+}
+
+function new_animal_variant_popup() {
+     var popup = popup_creator("misc_local/placeholder", "misc_local/placeholder");
+
+    popup.backplate.set_size(202, 112);
+
+ popup.header
+        .set_xy(0, 0)
+        .set_sprite(spr_ui_tooltip_header_box)
+        .set_size(popup.backplate.get_width(), 36)
+
+    popup.title
+        .set_align(Align.Center, Align.Middle)
+        .set_ghost_key(item.prototype.name_key)
+        .set_text(item.get_display_name())
+
+
+  popup.body
+        .set_size(popup.backplate.get_width(), 42)
+        .set_align(Align.Center, Align.BottomIn)
+        .set_sprite(spr_ui_tooltip_new_item_description_box)
+
+    popup.body_text
+        .set_align(Align.Center, Align.TopIn)
+        .set_y(7)
+        .set_text_align(TextAlign.Center)
+        .set_ghost_key(item.prototype.description_key)
+        .set_text(item.get_display_description())
+
+
+ ribbon_key = "misc_local/new_unlock";
+        popup.body_text.set_key("misc_local/new_animal_cosmetic_available");
+
+            var dummy_animal = new NonPlayerAnimal(
+            item.animal_cosmetic.animal,
+            ANIMAL_PROTOTYPES[item.animal_cosmetic.animal].core.default_icon_variant,
+            Sex.Female,
+        );
+        dummy_animal.days_old = I32_MAX;
+        dummy_animal.cosmetic = item.animal_cosmetic.cosmetic;
+
+        var backplate = ANCHOR.nine_slice(popup.backplate)
+            .set_align(Align.Center, Align.Middle)
+            .set_size(68, 68)
+            .set_y(-16)
+            .set_sprite(spr_ui_journal_animal_preview_box)
+
+        popup.backplate.add_height(backplate.get_height() - 20);
+
+        render_animal_in_ui(dummy_animal, backplate);
 }

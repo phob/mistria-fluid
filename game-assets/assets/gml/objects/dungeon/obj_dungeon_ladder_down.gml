@@ -6,8 +6,6 @@ object_create(
         state: LadderState.Spawned,
         create: function() {
             event_inherit(ObjectEvent.Create);
-            self.ladder_choice_index = 0;
-
             self.xstart = self.x;
             self.ystart = self.y;
         },
@@ -25,22 +23,27 @@ object_create(
                 }
             }
         },
-        draw: function() {
-            event_inherit(ObjectEvent.Draw);
+        draw_end: function() {
+            self.bouncer.status = InteractBounceStatus.None;
 
-            //
-            if
-                is_dungeon_room(room())
-                && DUNGEON_IMPL == DungeonImpl.LadderChoice
-                && !TAXI.is_traveling()
-            {
-                draw_sprite(spr_ui_bark_bubble_think_open, 0, self.x, self.y - 16);
-                draw_sprite(
-                    spr_mines_level_types,
-                    DUNGEON_RUNNER.ladder_choice_options[self.ladder_choice_index],
-                    self.x,
-                    self.y - 16,
-                );
+            if MIST.running {
+                return;
+            }
+
+            self.bouncer.status = InteractBounceStatus.Distant;
+            self.bouncer.alpha = approach(self.bouncer.alpha, BARK_MIN_ALPHA, BARK_FADE_SPEED);
+
+            var is_being_selected = self.bouncer.update();
+
+            var offset_x = 0;
+            var offset_y = -11;
+
+            if is_being_selected {
+                draw_sprite_ext(spr_ui_interact_bubble_big, 0, x + offset_x, y + offset_y + self.bouncer.offset, 1, 1, 0, c_white, self.bouncer.alpha);
+                draw_sprite_ext(spr_ui_bark_icon_ladder, 0, x + offset_x, y + offset_y + self.bouncer.offset, 1, 1, 0, c_white, self.bouncer.alpha);
+            } else {
+                draw_sprite_ext(spr_ui_interact_bubble_small, 0, x + offset_x, y + offset_y + 1 + self.bouncer.offset, 1, 1, 0, c_white, self.bouncer.alpha);
+                draw_sprite_ext(spr_ui_bark_icon_ladder_small, 0, x + offset_x, y + offset_y + 1 + self.bouncer.offset, 1, 1, 0, c_white, self.bouncer.alpha);
             }
         },
     }

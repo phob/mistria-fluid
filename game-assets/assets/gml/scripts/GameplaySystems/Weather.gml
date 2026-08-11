@@ -194,25 +194,91 @@ function WeatherManager() constructor {
             }
 
             gpu_set_srgb_blending(true);
-        } else {
+        } else if self.atmosphere.id != Atmosphere.HighClouds {
             draw_atmosphere_particles(self.atmosphere);
         }
     }
 
     function on_draw_gui() {
         if self.atmosphere == undefined
-            || !matches(self.atmosphere.id, Atmosphere.Rain, Atmosphere.Storm)
+            || !matches(self.atmosphere.id, Atmosphere.HighClouds, Atmosphere.Petals, Atmosphere.Leaves, Atmosphere.Rain, Atmosphere.Storm)
             || LOCATIONS[CURRENT_LOCATION_ID].outdoor == false
             || CURRENT_LOCATION_ID == LocationId.Summit
         {
             return;
         }
 
-        draw_clear_depth(1);
-        gpu_set_depth_test(cmpfunc_lessequal);
-        gpu_set_colorwriteenable(false, false, false, false);
-        var old_depth = gpu_get_depth();
-        gpu_set_depth(0);
+        if self.atmosphere.id == Atmosphere.HighClouds
+            || self.atmosphere.id == Atmosphere.Petals
+            || self.atmosphere.id == Atmosphere.Leaves
+        {
+            if CURRENT_LOCATION_ID == LocationId.DeepWoods {
+                return;
+            }
+
+            var fade_in_start = fiddle_get("weather/high_cloud/fade_in_start");
+            fade_in_start = hours(fade_in_start[0]) + minutes(fade_in_start[1]);
+
+            var fade_in_end = fiddle_get("weather/high_cloud/fade_in_end");
+            fade_in_end = hours(fade_in_end[0]) + minutes(fade_in_end[1]);
+
+            var fade_out_start = fiddle_get("weather/high_cloud/fade_out_start");
+            fade_out_start = hours(fade_out_start[0]) + minutes(fade_out_start[1]);
+
+            var fade_out_end = fiddle_get("weather/high_cloud/fade_out_end");
+            fade_out_end = hours(fade_out_end[0]) + minutes(fade_out_end[1]);
+
+            var scalar = 1;
+            if CLOCK.time < fade_in_end {
+                scalar = inverse_lerp(CLOCK.time, fade_in_end, fade_in_start);
+            } else if CLOCK.time >= fade_out_start {
+                scalar = 1.0 - inverse_lerp(CLOCK.time, fade_out_end, fade_out_start);
+            }
+            var opacity = fiddle_get("weather/high_cloud/opacity") * clamp(scalar, 0, 1);
+            if opacity < 0.001 {
+                return;
+            }
+
+            gpu_set_stencil_operation(StencilOperation.Replace);
+            gpu_set_stencil_test(cmpfunc_greater, stencil_increment());
+
+            var shadow_color = make_color_rgb(
+                round(255 * POST_PROCESS.shadow_multiply_color[0] * opacity),
+                round(255 * POST_PROCESS.shadow_multiply_color[1] * opacity),
+                round(255 * POST_PROCESS.shadow_multiply_color[2] * opacity),
+            );
+            var scale = DISPLAY.asset_resize();
+
+            for (var i = 0; i < array_length(self.atmosphere.clouds); i++) {
+                var part = self.atmosphere.clouds[i];
+                part.x += lengthdir_x(part.speed, part.angle);
+                part.y += lengthdir_y(part.speed, part.angle);
+
+                var draw_x = wrap(part.x, room_width() * (1.0 / dcos(part.angle)), -150) - CAMERA.left();
+                var draw_y = wrap(part.y, room_height() * (1.0 / dsin(part.angle)), -100) - CAMERA.top();
+
+                draw_sprite_ext(
+                    part.sprite,
+                    part.index,
+                    draw_x * scale,
+                    draw_y * scale,
+                    scale,
+                    scale,
+                    0,
+                    shadow_color,
+                    opacity,
+                );
+            }
+
+            gpu_disable_stencil();
+
+            return;
+        }
+
+        gpu_set_stencil_operation(StencilOperation.Replace);
+        gpu_set_stencil_test(cmpfunc_greater, stencil_increment());
+        
+        gpu_set_color_write(false);
         for (var i = 0; i < array_length(self.atmosphere.clouds); i++) {
             var part = self.atmosphere.clouds[i];
 
@@ -236,8 +302,8 @@ function WeatherManager() constructor {
                 1,
             );
         }
-        gpu_set_colorwriteenable(true, true, true, true);
-        gpu_set_depth(1);
+        gpu_set_color_write(true);
+        
         gpu_set_srgb_blending(false);
         var output_size = window_get_output_dimensions();
         draw_sprite_ext(
@@ -251,9 +317,8 @@ function WeatherManager() constructor {
 			make_color_rgb(12, 30, 30),
 			0.1,
         );
-        gpu_set_depth(old_depth);
-        gpu_set_depth_test(cmpfunc_always);
         gpu_set_srgb_blending(true);
+        gpu_disable_stencil();
     }
 
     function serialize() {
@@ -272,6 +337,7 @@ function WeatherManager() constructor {
 
 function atmosphere_function(atmosphere) {
     switch atmosphere {
+        case Atmosphere.HighClouds: return high_clouds;
         case Atmosphere.Rain: return rain;
         case Atmosphere.Storm: return function() {
             return rain(true);
@@ -370,12 +436,68 @@ function rain(is_storm=false) {
     return atmos;
 }
 
+function high_clouds() {
+    if SETTINGS.get("weather_strength") == "none" {
+        return undefined;
+    }
+
+    var atmos =  {
+        id: Atmosphere.HighClouds,
+        start_offset: CAMERA.cam_pos.clone(),
+    };
+
+    atmos.on_room_start = method(atmos, function() {
+        random_set_seed(CALENDAR.time);
+
+        var range = fiddle_get("weather/high_cloud/range");
+
+        if SETTINGS.get("weather_strength") == "low" {
+            range[0] = round(range[0] * 0.5);
+            range[1] = round(range[1] * 0.5);
+        }
+
+        var angle_range = fiddle_get("weather/high_cloud/angle");
+        var speed_range = fiddle_get("weather/high_cloud/speed");
+
+        var wrapper = {
+            my_angle: irandom_range(angle_range[0], angle_range[1]),
+            my_speed: random_range(speed_range[0], speed_range[1]),
+        }
+
+        var points = poisson_points(
+            room_width() * 2,
+            room_height() * 2,
+            irandom_range(range[0], range[1])
+        );
+
+        self.clouds = apply_func(
+            points,
+            method(wrapper, function(v) {
+                return {
+                    x: v[0],
+                    y: v[1],
+                    angle: self.my_angle,
+                    speed: self.my_speed,
+                    anim_speed: 0,
+                    index: irandom(sprite_get_number(spr_cloud_silhouette) - 1),
+                    sprite: spr_cloud_silhouette,
+                }
+            }),
+        );
+
+        randomize();
+    });
+    atmos.on_room_start();
+
+    return atmos;
+}
+
 function petals() {
-    var r = 50;
+    var r = 100;
     if SETTINGS.get("weather_strength") == "none" {
         return undefined;
     } else if SETTINGS.get("weather_strength") == "low" || MIST.is_running() {
-        r = 100;
+        r = 200;
     }
     var points = poisson_points(
         CAMERA.view_width + ATMOS_PADDING * 2,
@@ -398,19 +520,25 @@ function petals() {
         }
     );
 
-    return {
+    var cloud_atmos = high_clouds();
+
+    var output = {
         id: Atmosphere.Petals,
+        clouds: cloud_atmos.clouds,
         particles,
         start_offset: CAMERA.cam_pos.clone(),
     };
+    output.on_room_start = method(output, cloud_atmos.on_room_start);
+
+    return output;
 }
 
 function leaves() {
-    var r = 50;
+    var r = 100;
     if SETTINGS.get("weather_strength") == "none" {
         return undefined;
     } else if SETTINGS.get("weather_strength") == "low" || MIST.is_running() {
-        r = 100;
+        r = 200;
     }
     var points = poisson_points(
         CAMERA.view_width + ATMOS_PADDING * 2,
@@ -433,11 +561,17 @@ function leaves() {
         }
     );
 
-    return {
+    var cloud_atmos = high_clouds();
+
+    var output = {
         id: Atmosphere.Leaves,
+        clouds: cloud_atmos.clouds,
         particles,
         start_offset: CAMERA.cam_pos.clone(),
     };
+    output.on_room_start = method(output, cloud_atmos.on_room_start);
+
+    return output;
 }
 
 function snow(is_blizzard=false) {
@@ -509,8 +643,8 @@ enum Weather {
 }
 
 //
-//
 enum Atmosphere {
+    HighClouds,
     Rain,
     Storm,
     Petals,
@@ -564,7 +698,7 @@ function weather_to_atmosphere(weather, time) {
     var is_winter = get_seasons(time) == Season.Winter;
     var is_fall = get_seasons(time) == Season.Fall;
     switch weather {
-        case Weather.Calm: return undefined;
+        case Weather.Calm: return Atmosphere.HighClouds;
         case Weather.Inclement: return is_winter ? Atmosphere.Snow : Atmosphere.Rain;
         case Weather.HeavyInclement: return is_winter ? Atmosphere.Blizzard : Atmosphere.Storm;
         case Weather.Special: return is_fall ? Atmosphere.Leaves : Atmosphere.Petals;

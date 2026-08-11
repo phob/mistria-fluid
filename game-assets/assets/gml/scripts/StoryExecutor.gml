@@ -228,7 +228,19 @@ function StoryExecutor(chain) constructor {
             if popup != undefined {
                 ANCHOR.tap_node(popup.buttons.first());
             }
-            return instance_exists(obj_ari) && obj_ari.fsm.current_state_id() == PlayerState.Default;
+
+            if instance_exists(obj_ari) {
+                switch obj_ari.fsm.current_state_id() {
+                    case PlayerState.Default: return true;
+                    case PlayerState.Cutscene:
+                        if MIST.active_cutscene != undefined {
+                            return MIST.active_cutscene.manually_triggered_in_morning;
+                        }
+                        return false;
+                    default: return false;
+                }
+            }
+            return false;
         });
     }
 

@@ -36,6 +36,8 @@ function load_map_hubs() {
 
 #macro ARI_MAP_SIGNUM 99999
 #macro PET_MAP_SIGNUM 11111
+#macro CHILD_0_MAP_SIGNUM 22222
+#macro CHILD_1_MAP_SIGNUM 33333
 
 function MapMenu() : AnchorMenu(Menu.Map) constructor {
     //
@@ -147,6 +149,36 @@ function MapMenu() : AnchorMenu(Menu.Map) constructor {
             }
         }
 
+        var child_sigs = [CHILD_0_MAP_SIGNUM, CHILD_1_MAP_SIGNUM];
+        for (var i = 0; i < array_length(ARI.children); i++) {
+            var child = ARI.children[i];
+            if child != undefined {
+                var loc_pos = undefined;
+                switch child.location {
+                    case ChildLocation.WithAri:
+                        loc_pos = new LocationPosition(CURRENT_LOCATION_ID, Vec2(obj_ari.x, obj_ari.y), CURRENT_DYN_INDEX);
+                        break;
+                    case ChildLocation.InCradle:
+                        var cradle = find_cradle();
+                        loc_pos = new LocationPosition(cradle.location_id, Vec2Zero());
+                        break;
+                    case ChildLocation.WithSpouse:
+                        loc_pos = NPCS[ARI.spouse()].location_position;
+                        break;
+                }
+
+                var winning_hub = self.find_hub_for(
+                    hubs,
+                    loc_pos,
+                    sorting_prio_queue,
+                    location_id,
+                );
+                if winning_hub != 0 {
+                    npc_to_hub.set(child_sigs[i], winning_hub);
+                }
+            }
+        }
+
         ds_priority_destroy(sorting_prio_queue);
 
         //
@@ -182,6 +214,10 @@ function MapMenu() : AnchorMenu(Menu.Map) constructor {
                         icon = spr_ui_generic_icon_npc_small_player;
                     } else if resident == PET_MAP_SIGNUM {
                         icon = PET_PROTOTYPE.variants.get(PET.variant).map_icon;
+                    } else if resident == CHILD_0_MAP_SIGNUM {
+                        icon = ARI.children[0].get_small_icon();
+                    } else if resident == CHILD_1_MAP_SIGNUM {
+                        icon = ARI.children[1].get_small_icon();
                     } else {
                         icon = NPCS[resident].has_met()
                             ? get_small_npc_icon(resident)

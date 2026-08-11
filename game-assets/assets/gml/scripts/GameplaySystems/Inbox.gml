@@ -28,6 +28,14 @@ function load_letters() {
                             new LiveItem(ItemId.RecipeScroll, string_to_item_id(letter_content.recipe_scroll)),
                         ),
                      });
+                } else if letter_content[$ "purse"] != undefined {
+                    var purse = new LiveItem(ItemId.Purse);
+                    purse.gold_to_gain = letter_content.purse;
+                    items.push({
+                        item: purse,
+                        count: 1,
+                        listing: Listing.Item(purse),
+                    })
                 } else {
                     items.push({
                         item: string_to_item_id(letter_content.item_name),
@@ -116,10 +124,10 @@ function Inbox() constructor {
         for (var i = 0; i < array_length(array); i++) {
             var letter = array[i];
             if LETTERS.contains_key(letter.path) == false {
-                if !DEBUG_ASSERTIONS {
-                    error("missing letter `{}`", letter.path);
-                } else {
+                if DEBUG_ASSERTIONS {
                     crash("missing letter `{}`", letter.path);
+                } else {
+                    error("missing letter `{}`", letter.path);
                 }
                 continue;
             }

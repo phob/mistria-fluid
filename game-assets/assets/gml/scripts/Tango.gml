@@ -107,7 +107,7 @@ function SoundInstanceController(ids) constructor {
     function update_instance_position(xx, yy) {
         for (var i = 0, c = array_length(self.ids); i < c; i++) {
             var idx = self.ids[i];
-            if idx != undefined {
+            if idx != undefined && TANGO.instance_alive(idx) {
                 TANGO.update_instance_position(idx, xx, yy);
             }
         }

@@ -10,18 +10,6 @@ function TitleMenu() : AnchorMenu(Menu.Title) constructor {
     self.skip_in_progress = false;
     self.ready_for_music = false;
     self.menu_target = Menu.Title;
-    self.ari_data = {
-        name: local_get("misc_local/default_player_name"),
-        farm_name: local_get("misc_local/default_farm_name"),
-        pronouns: default_pronouns(),
-        presets: List(create_default_player_animation_assets()),
-        preset_index_selected: 0,
-        cosmetic_unlocks: ALL_UNLOCKS
-            ? HashSetFromArray(PLAYER_ANIMATION_DATABASE.player_assets.keys())
-            : default_cosmetic_unlocks(),
-        seen_cosmetics: default_cosmetic_unlocks(),
-        birthday: DEFAULT_ARI_BIRTHDAY,
-    };
 
     function on_think() {
         if self.top_menu != undefined && self.top_canvas.is_unlocked() {
@@ -189,6 +177,7 @@ function TitleMenu() : AnchorMenu(Menu.Title) constructor {
             .set_align(Align.LeftIn, Align.BottomIn)
             .set_x(2)
             .set_lut(COMMON_LUT, CommonLutIndex.WhiteOnGreen)
+            .force_font(fnt_mistria_birdseed)
             .set_think_callback(function() {
                 var sha = os_get_sha();
                 var tampered = checksum_assets_are_tampered() || checksum_cli_is_utilized();
@@ -212,6 +201,7 @@ function TitleMenu() : AnchorMenu(Menu.Title) constructor {
                 .set_align(Align.LeftIn, Align.BottomIn)
                 .set_xy(2, -12)
                 .set_lut(COMMON_LUT, CommonLutIndex.WhiteOnGreen)
+                .force_font(fnt_mistria_birdseed)
 
             ANCHOR.sprite(t)
                 .set_sprite(spr_ui_generic_checkbox_on)
@@ -225,6 +215,7 @@ function TitleMenu() : AnchorMenu(Menu.Title) constructor {
                 .set_align(Align.LeftIn, Align.BottomIn)
                 .set_xy(2, -24)
                 .set_lut(COMMON_LUT, CommonLutIndex.WhiteOnGreen)
+                .force_font(fnt_mistria_birdseed)
 
             ANCHOR.sprite(t)
                 .set_sprite(spr_ui_generic_checkbox_on)
@@ -237,6 +228,7 @@ function TitleMenu() : AnchorMenu(Menu.Title) constructor {
             .set_align(Align.RightIn, Align.BottomIn)
             .set_x(-2)
             .set_lut(COMMON_LUT, CommonLutIndex.WhiteOnGreen)
+            .force_font(fnt_mistria_birdseed)
 
         self.logo = ANCHOR.sprite(self.canvas)
             .set_align(Align.Center, Align.Middle)
@@ -317,9 +309,12 @@ function TitleMenu() : AnchorMenu(Menu.Title) constructor {
                 .add_hover_outline(spr_ui_main_menu_button_hover_outline)
                 .lock()
 
+            button.text_label.add_y(-1);
+
             button.update_width = function(button) {
                 static WIDTH_DATA = fiddle_get("ui/misc/local_adjustments/title_menu_button");
                 button.set_width(WIDTH_DATA[$ local_language()] ?? WIDTH_DATA[$ "default"]);
+                button.hover_outline.set_size(button.width + 4, button.height + 4)
             };
 
             button.set_think_callback(button.update_width, [button]);
@@ -376,7 +371,19 @@ function TitleMenu() : AnchorMenu(Menu.Title) constructor {
             }, [continue_button], true)
         }
         var new_button = button("misc_local/new_game", function() {
-            self.enter_game(LoadState.New(self.ari_data));
+            var ari_data = {
+                name: local_get("misc_local/default_player_name"),
+                farm_name: local_get("misc_local/default_farm_name"),
+                pronouns: default_pronouns(),
+                presets: List(create_default_player_animation_assets()),
+                preset_index_selected: 0,
+                cosmetic_unlocks: ALL_UNLOCKS
+                    ? HashSetFromArray(PLAYER_ANIMATION_DATABASE.player_assets.keys())
+                    : default_cosmetic_unlocks(),
+                seen_cosmetics: default_cosmetic_unlocks(),
+                birthday: DEFAULT_ARI_BIRTHDAY,
+            };
+            self.enter_game(LoadState.New(ari_data));
         });
         var first_button = continue_button ?? new_button;
         first_button.blackboard.set("hover_when_done", true);
@@ -420,6 +427,15 @@ function TitleMenu() : AnchorMenu(Menu.Title) constructor {
             } else if DISPLAY_INVALID_SAVE_POPUP == 1 {
                 create_invalid_save_popup();
                 DISPLAY_INVALID_SAVE_POPUP = 0;
+            }
+
+            if DISPLAY_BETA_LANGUAGE_WARNING {
+                DISPLAY_BETA_LANGUAGE_WARNING = false;
+                await_popup(function() {
+                    var popup = popup_creator("misc_local/beta_language_title", "misc_local/beta_language_description");
+                    popup.create_button("misc_local/close");
+                    popup.spawn();
+                });
             }
         });
     }

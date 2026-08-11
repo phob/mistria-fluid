@@ -84,7 +84,7 @@ object_create(
                             duration = irandom_range(owner.config.idle_duration[0], owner.config.idle_duration[1]);
                         })
                         .step(function() {
-                            if owner.aggro {
+                            if collision_circle(owner.x, owner.y, owner.config.attack_radius, obj_ari) {
                                 duration -= 1;
                                 if duration <= 0 {
                                     if !self.acknowledged {

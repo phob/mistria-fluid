@@ -6,12 +6,6 @@ if DEBUG_TOOLS == false {
 function bugger_initialize() {
     BUGGER
         .add_command(
-            BuggerCommand("refresh_achievements")
-            .process(function() {
-                refresh_achievements();
-            })
-        )
-        .add_command(
             BuggerCommand("help")
                 .author("gabe")
                 .process(function () {
@@ -140,6 +134,33 @@ function bugger_initialize() {
                 .process(function () {
                     obj_cosmic_debug.show_cbs = !obj_cosmic_debug.show_cbs;
                 })
+        )
+        .add_command(
+            BuggerCommand("refresh_achievements")
+            .process(function() {
+                refresh_achievements();
+            })
+        )
+        .add_command(
+            BuggerCommand("reset_achievements")
+            .process(function() {
+                for (var i = 0; i < Achievement.LEN; i++) {
+                    steam_reset_stats();
+                }
+            })
+        )
+        .add_command(
+            BuggerCommand("check_locked_achievements")
+            .process(function() {
+                var out = ListFromArray(array_create_ext(Achievement.LEN, identity))
+                    .retain(function(i) {
+                        return !ACHIEVEMENT_CACHE[i];
+                    })
+                    .map(achievement_to_string)
+                    .join(",");
+
+                trace("Locked Achievements: {}", out);
+            })
         )
         .add_command(
             BuggerCommand("find")
@@ -376,6 +397,16 @@ function bugger_initialize() {
                 .arg(BuggerArgument("letter").values(LETTERS.keys()))
                 .process(function(args) {
                     ARI.inbox.push_mail(args.letter);
+                })
+        )
+        .add_command(
+            BuggerCommand("home_variant")
+                .arg(BuggerArgument("variant").values(get_all_keys(HomeVariant.LEN, home_variant_to_string)))
+                .process(function(args) {
+                    DECOR.variant = string_to_home_variant(args.variant);
+                    if CURRENT_LOCATION_ID == LocationId.Farm {
+                        setup_room();
+                    }
                 })
         )
         .add_command(
@@ -1158,8 +1189,7 @@ function bugger_initialize() {
                 .author("gabe")
                 .process(function () {
                     if is_dungeon_room(room()) {
-                        game_stats_end_mines_floor("cheater");
-                        DUNGEON_RUNNER.proceed();
+                        DUNGEON_RUNNER.proceed("cheater");
                     } else {
                         enter_dungeon();
                     }
@@ -1228,8 +1258,7 @@ function bugger_initialize() {
                 .subcommand(BuggerCommand("proceed")
                     .help("Proceeds to the next level of the dungeon.")
                     .process(function() {
-                        game_stats_end_mines_floor("cheater");
-                        DUNGEON_RUNNER.proceed();
+                        DUNGEON_RUNNER.proceed("cheater");
                     })
                 )
                 .subcommand(BuggerCommand("spawn_ladder")
@@ -1379,6 +1408,14 @@ function bugger_initialize() {
                                 var unlocks = HashSetFromArray(animal.cosmetics.keys());
                                 ARI.animal_cosmetic_unlocks[i] = unlocks;
                             }
+                        })
+                )
+                .subcommand(
+                    BuggerCommand("unlock_variant")
+                        .arg(BuggerArgument("animal_kind").help("The breed of animal").values(get_all_keys(AnimalKind.LEN, animal_kind_to_string)))
+                        .arg(BuggerArgument("variant").help("The variant name of animal"))
+                        .process(function(args) {
+                            ARI.animal_variant_unlocks[string_to_animal_kind(args.animal_kind)].insert(args.variant);
                         })
                 )
                 .subcommand(
@@ -1993,12 +2030,7 @@ function bugger_initialize() {
             BuggerCommand("test")
                 .arg(BuggerArgument("value"))
                 .process(function(_o) {
-                    for (var i = 0; i < 8; i++) {
-                        var pop = popup_creator(ANCHOR.wrap_for_local(format("popup {}", i)), "misc_local/none");
-                        pop.create_button("misc_local/close");
-                        pop.backplate.set_xy(irandom_range(-100, 100), irandom_range(-100, 100));
-                        pop.spawn();
-                    }
+                    DISPLAY.gamma = real(_o.value);
                 })
         )
         .add_command(
@@ -2068,6 +2100,24 @@ function bugger_initialize() {
                         })
                 )
                 .subcommand(
+                    BuggerCommand("triage")
+                        .help("Heuristically detects trivial reasons keys are marked as outdated in an attempt to identify those that just need remapping.")
+                        .arg(BuggerArgument("language_key").help("the shorthand key for the language"))
+                        .arg(BuggerArgument("file_name").help("the output filename for the report"))
+                        .process(function(opts) {
+                            schlep_triage(opts.language_key, opts.file_name);
+                        })
+                )
+                .subcommand(
+                    BuggerCommand("forgive")
+                        .help("Takes a triage report and marks the previous_source of its capitalization and whitespace keys as up to date with the current source. Note that this needs the 'schlep_tools' feature enabled!")
+                        .arg(BuggerArgument("language_key").help("the shorthand key for the language"))
+                        .arg(BuggerArgument("file_name").help("the input filename"))
+                        .process(function(opts) {
+                            schlep_forgive(opts.language_key, opts.file_name);
+                        })
+                )
+                .subcommand(
                     BuggerCommand("remap")
                         .help("Takes a toml file of key remaps and updates the given language's meta files. Note that this needs the 'schlep_tools' feature enabled!")
                         .arg(BuggerArgument("language_key").help("the shorthand key for the language"))
@@ -2099,78 +2149,6 @@ function bugger_initialize() {
                         .process(function(o) {
                             gc_target_frame_time(real(o.d));
                             BUGGER.cli.echo("Gc gets {}ms", real(o.d) / 1000);
-                        })
-                )
-        )
-        .add_command(
-            BuggerCommand("perf")
-                .subcommand(
-                    BuggerCommand("timings")
-                        .process(function() {
-                            var timing_method;
-                            switch display_get_timing_method() {
-                                case tm_sleep:
-                                    timing_method = "sleep";
-                                    break;
-                                case tm_countvsyncs:
-                                    timing_method = "vsync";
-                                    break;
-                                default:
-                                    timing_method = "unknown";
-                                    break;
-                            }
-
-                            BUGGER.cli.echo("{}: interval at {}ms", timing_method, display_get_sleep_margin());
-                        })
-                )
-                .subcommand(
-                    BuggerCommand("gc_time")
-                        .arg(BuggerArgument("d"))
-                        .process(function(o) {
-                            gc_target_frame_time(real(o.d));
-                            BUGGER.cli.echo("Gc gets {}ms", real(o.d) / 1000);
-                        })
-                )
-                .subcommand(
-                    BuggerCommand("gc_sniffer")
-                        .process(function() {
-                            if is_undefined(Game.gc_sniffer) {
-                                Game.gc_sniffer = 0;
-                            } else {
-                                Game.gc_sniffer = undefined;
-                            }
-                        })
-                )
-                .subcommand(
-                    BuggerCommand("toggle_cull")
-                        .process(function() {
-                            CAMERA.process_culls_this_room = !CAMERA.process_culls_this_room;
-                            BUGGER.cli.echo("Culling: {bool}", CAMERA.process_culls_this_room);
-                        })
-                )
-                .subcommand(
-                    BuggerCommand("toggle_ui")
-                        .process(function() {
-                            BUGGER.hide_ui = !BUGGER.hide_ui;
-                            BUGGER.cli.echo("Hiding UI: {bool}", BUGGER.hide_ui);
-                        })
-                )
-                .subcommand(
-                    BuggerCommand("draw_shadows")
-                        .process(function() {
-                            with obj_shadow_level {
-                                self.visible = !self.visible;
-                            }
-                            BUGGER.cli.echo("Drawing Shadows: {bool}", obj_shadow_level.visible);
-                        })
-                )
-                .subcommand(
-                    BuggerCommand("draw_ari")
-                        .process(function() {
-                            with obj_ari {
-                                self.visible = !self.visible;
-                            }
-                            BUGGER.cli.echo("Drawing Ari: {bool}", obj_ari.visible);
                         })
                 )
         )
@@ -2939,12 +2917,24 @@ function bugger_initialize() {
                     BuggerCommand("grant_mount")
                         .help("Gives Ari the default mount.")
                         .process(function() {
-                            ARI.mount = create_default_mount();
+                            ARI.mount = create_default_mount("mistmare");
+                        })
+                )
+                .subcommand(
+                    BuggerCommand("give_child")
+                        .arg(BuggerArgument("child").values(get_all_keys(ChildId.LEN, child_id_to_string)))
+                        .process(function(opts) {
+                            trigger_birth(string_to_child_id(opts.child));
                         })
                 )
                 .subcommand(
                     BuggerCommand("clear_children")
                         .process(function() {
+                            //
+                            var held = ARI.held_child();
+                            if held != undefined {
+                                held.set_location(ChildLocation.InCradle);
+                            }
                             ARI.children = [];
                             report_children_facts();
                         })
@@ -3062,22 +3052,7 @@ function bugger_initialize() {
                         .help("sets inventory size -- YOU MUST USE 10, 20, OR 30")
                         .arg(BuggerArgument("size").help("da size"))
                         .process(function (args) {
-                            var s;
-                            switch real(args.size) {
-                                case "10":
-                                    s = 10;
-                                    break;
-                                case "20":
-                                    s = 20;
-                                    break;
-                                case "30":
-                                    s = 30;
-                                    break;
-                                default:
-                                    BUGGER.cli.echo("You must set the size to 10, 20 or 30.");
-                                    return;
-                            }
-                            ARI.inventory.resize(s);
+                            ARI.inventory.resize(real(args.size));
                         })
                 )
         )
@@ -3217,8 +3192,12 @@ function bugger_initialize() {
                 )
                 .subcommand(BuggerCommand("skip_to")
                     .arg(BuggerArgument("checkpoint"))
+                    .arg(BuggerArgument("prompt_index")
+                        .help("The option every prompt answers itself with while skipping. Defaults to 0 -- pass 1 to take the romantic split of a heart event.")
+                        .optional(0)
+                    )
                     .process(function(o) {
-                        MIST.runtime.begin_simulation(o.checkpoint);
+                        MIST.runtime.begin_simulation(o.checkpoint, real(o.prompt_index));
                     }))
         )
         .add_command(
@@ -3358,7 +3337,7 @@ function bugger_initialize() {
                                 if DUNGEON_FLOOR >= (start_floor + 18) {
                                     enter_dungeon(start_floor, DUNGEON_FLOOR_COUNT, true);
                                 } else {
-                                    DUNGEON_RUNNER.proceed(0, true);
+                                    DUNGEON_RUNNER.proceed("cheater", true);
                                 }
                             }, [start_floor]);
                             c.append(LinkId.Timer, 1);
@@ -3441,25 +3420,18 @@ function bugger_initialize() {
                                 } else {
                                     static ITER = 0;
                                     static COLORS = [
-                                        c_aqua,
-                                        c_black,
-                                        c_blue,
-                                        c_dkgray,
-                                        c_fuchsia,
-                                        c_gray,
-                                        c_green,
-                                        c_lime,
-                                        c_ltgray,
-                                        c_maroon,
-                                        c_navy,
-                                        c_olive,
-                                        c_orange,
-                                        c_purple,
-                                        c_red,
-                                        c_silver,
-                                        c_teal,
-                                        c_teal,
-                                        c_yellow,
+                                        make_color_rgb(20, 20, 20),
+                                        make_color_rgb(30, 120, 255),
+                                        make_color_rgb(255, 0, 200),
+                                        make_color_rgb(0, 180, 60),
+                                        make_color_rgb(150, 140, 0),
+                                        make_color_rgb(255, 130, 0),
+                                        make_color_rgb(140, 0, 200),
+                                        make_color_rgb(220, 0, 0),
+                                        make_color_rgb(180, 180, 180),
+                                        make_color_rgb(0, 190, 190),
+                                        make_color_rgb(0, 90, 90),
+                                        make_color_rgb(255, 220, 0),
                                     ];
                                     node.preview(COLORS[ITER]);
                                     ITER = wrap(ITER + 1, array_length(COLORS));

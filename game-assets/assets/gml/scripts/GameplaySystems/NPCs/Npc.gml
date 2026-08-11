@@ -75,8 +75,10 @@ function load_npc_prototypes() {
             gossip: data.gossip,
             tags: data.tags,
             roommate_routine: opt_and_then(data[$ "roommate_routine"], string_to_routine),
+            children: apply_func(data[$ "children"] ?? [], string_to_child_id),
             proposal_cutscene: opt_and_then(data[$ "proposal_cutscene"], CONTENT_REGISTRY.validate_cutscene),
             can_carry_child: data[$ "can_carry_child"] ?? false,
+            child_fallbacks: data[$ "child_portrait_fallbacks"] ?? {},
         };
     }
 
@@ -325,6 +327,7 @@ function Npc(idx, brain) constructor {
     self.times_spoken_today = 0;
     self.talk_flag = true;
     self.heart_points = 0;
+    self.swap_schedule_request = undefined;
     self.activity_handler = new ActivityHandler(self);
     self.wardrobe = new Wardrobe(self.prototype.wardrobe_outfits, format("{NpcId}_outfit", self.id));
     self.wardrobe.set_outfit(self.prototype.get_suitable_outfit_key(self.wardrobe, CALENDAR.time));
@@ -357,7 +360,12 @@ function Npc(idx, brain) constructor {
     }
 
     //
-    function can_perform_animation(animation_name) {
+    //
+    //
+    //
+    //
+    //
+    function can_perform_animation(animation_name, required_cardinal, ignore_child=false) {
         var in_current = self.wardrobe
             .outfit_current
             .cycles
@@ -370,11 +378,24 @@ function Npc(idx, brain) constructor {
             .contains_key(animation_name);
 
         var child = self.held_child();
-        if child != undefined && child.try_get_sprite(animation_name, self.cardinality) == undefined {
+        if !ignore_child && child != undefined && child.try_get_parent_sprite(animation_name, self.cardinality) == undefined {
             return false;
         }
 
-        return in_current || in_fallback;
+        if !in_current && !in_fallback {
+            return false;
+        }
+
+        //
+        if required_cardinal != undefined {
+            required_cardinal = required_cardinal == Cardinal.West ? Cardinal.East : required_cardinal;
+            var dirs = fiddle_get(format("npcs/{NpcId}/cycles/{}/directions", self.id, animation_name));
+            if !array_has(dirs, cardinal_to_string(required_cardinal)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     function set_cardinality(cardinal) {
@@ -386,7 +407,7 @@ function Npc(idx, brain) constructor {
 
     function add_heart_points(amount) {
         var old = self.heart_level();
-        if old >= 8 {
+        if old >= 10 {
             return;
         }
         self.heart_points += max(amount, 0);
@@ -407,6 +428,7 @@ function Npc(idx, brain) constructor {
                     );
                 }
             }
+            refresh_achievements([Requirement.ReachedHeartLevel]);
         }
 
         self.report_hearts();
@@ -441,8 +463,11 @@ function Npc(idx, brain) constructor {
         var status = T2R.read(format("{NpcId}_status", self.id));
         T2R.write(format("{NpcId}_is_best_friend", self.id), status == "best_friend");
         T2R.write(format("{NpcId}_is_dating", self.id), status == "dating");
+        T2R.write(format("{NpcId}_is_fiance", self.id), status == "fiance");
         T2R.write(format("{NpcId}_is_spouse", self.id), status == "spouse");
-        T2R.write(format("{NpcId}_is_partner", self.id), matches(status, "dating", "spouse"));
+        T2R.write(format("{NpcId}_is_partner", self.id), matches(status, "dating", "fiance", "spouse"));
+        T2R.write("has_spouse", ARI.spouse() != undefined);
+        T2R.write("has_fiance", ARI.fiance() != undefined);
     }
 
     function give_gift(item) {
@@ -536,6 +561,12 @@ function Npc(idx, brain) constructor {
             T2R.write("has_given_any_hated_gift", true);
         }
 
+        if self.is_birthday() && matches(desire, Desire.Liked, Desire.Loved) {
+            T2R.write(format("gave_{NpcId}_good_birthday_gift", self.id), true);
+        }
+
+        refresh_achievements([Requirement.AllNpcGiftsDiscovered, Requirement.GoodGiftsGiven]);
+
         return {
             convo: gift_convo,
             bark: string_to_bark_id(fiddle_get(format("misc/gift_giving/barks/{Desire}", desire))),
@@ -599,12 +630,18 @@ function Npc(idx, brain) constructor {
     }
 
     function at_farm() {
-        return self.location_position.location_id == LocationId.Farm
-            || is_home_location(self.location_position.location_id);
+        return self.location_position != undefined
+            && (self.location_position.location_id == LocationId.Farm
+                || is_home_location(self.location_position.location_id)
+            );
     }
 
     function held_child() {
         if !self.is_spouse() {
+            return undefined;
+        }
+
+        if MIST.blackboard.get("no_held_child") == true {
             return undefined;
         }
 
@@ -650,6 +687,10 @@ function Npc(idx, brain) constructor {
 
         self.itinerary = undefined;
         self.simulated_distance_traveled = 0;
+
+        if self.brain.blackboard.try_take("set_can_talk_on_arrival") == true {
+            self.talk_flag = true;
+        }
     }
 
     function serialize() {
@@ -683,6 +724,7 @@ function Npc(idx, brain) constructor {
             times_spoken_today: self.times_spoken_today,
             heart_points: self.heart_points,
             simulated_distance_traveled: self.simulated_distance_traveled,
+            swap_schedule_request: self.swap_schedule_request,
         }
     }
 
@@ -699,6 +741,7 @@ function Npc(idx, brain) constructor {
         self.known_gift_preferences = HashSetFromArray(array_map(value.known_gift_preferences, string_to_item_id_or_unknown));
         self.gifts_given = HashSetFromArray(array_map(value.gifts_given, string_to_item_id_or_unknown));
         self.simulated_distance_traveled = value.simulated_distance_traveled;
+        self.swap_schedule_request = value[$ "swap_schedule_request"];
 
         var routine_id = try_string_to_routine(value.current_routine);
         if routine_id == undefined {
@@ -712,7 +755,19 @@ function Npc(idx, brain) constructor {
 
         //
         var schedule_name = value.schedule_name;
-        T2R.schedule_reload(self.id, schedule_name, CLOCK.time, value.had_arrived);
+        if schedule_name == "Schedules/Dragon Town Schedules/FNATI/fnati_0_dragon" {
+            schedule_name = "Schedules/Dragon Town Schedules/FNATI/fnati_5_dragon";
+        }
+        var output = T2R.schedule_reload(self.id, schedule_name, CLOCK.time, value.had_arrived);
+        if output == undefined {
+            tattletale_report_error_without_panic(
+                "Failed to deserialize schedule",
+                format("Couldn't find a schedule of the given name `{}`! Defaulting back to basement schedule...find them in Aldaria", schedule_name),
+            );
+            T2R.schedule_start(self.id, "Schedules/basement_schedule");
+            var pt = trellis_point_find_by_name(rm_aldaria, "default");
+            self.location_position = new LocationPosition(LocationId.Aldaria, Vec2(pt.x, pt.y));
+        }
     }
 
 }
@@ -766,11 +821,6 @@ function Wardrobe(_outfits, t2_key) constructor {
 //
 function test_gift_dialogue() {
     for (var i = 0; i < NpcId.LEN; i++) {
-        //
-        if matches(i, NpcId.Louis, NpcId.Stillwell, NpcId.Zorel, NpcId.Vera, NpcId.Taliferro) {
-            continue;
-        }
-
         var npc = NPCS[i];
 
         //
@@ -828,8 +878,9 @@ function npc_is_unlocked(npc_id) {
         case NpcId.Wheedle:
         case NpcId.Taliferro:
             return QUEST_LOG.completed.contains("upgrade_the_saturday_market");
-        case NpcId.Stillwell: return false;
-        case NpcId.Zorel: return false;
+        case NpcId.Stillwell:
+        case NpcId.Zorel:
+            return QUEST_LOG.completed.contains("upgrade_the_saturday_market_plaza");
         case NpcId.Caldarus: return requirements_pass(Requirement.BrokeFireSeal)
         case NpcId.Seridia: return requirements_pass(Requirement.SeridiaTransformed);
         //

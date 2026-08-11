@@ -1,4 +1,9 @@
-# ARPG Movement 2.1.0 (for Fields of Mistria)
+# ARPG Movement 2.1.1 (for Fields of Mistria 1.0)
+
+ARPG Movement 2.1.1 is ready for Fields of Mistria 1.0. Installing it requires
+an official MOMI build that explicitly supports the game's 1.0 release;
+pre-1.0 installer builds fail their game compatibility checks before this mod
+is compiled.
 
 Mouse movement and automatic tool swapping for action-RPG-style play:
 
@@ -32,7 +37,9 @@ Mouse movement and automatic tool swapping for action-RPG-style play:
   untouched.
 
 Built as a [MOMI](https://github.com/Garethp/Mods-of-Mistria-Installer)
-(0.14.0+) MMAPI mod. The entire mod is one GML file:
+(0.14.0+) MMAPI mod. For Fields of Mistria 1.0, use the first official MOMI
+release that explicitly supports 1.0 or a newer release. The entire mod is one
+GML file:
 `momi-mod/arpg_movement/gml/ArpgMovement.gml`.
 
 All tunables live in
@@ -52,6 +59,6 @@ cd "/d/SteamLibrary/steamapps/common/Fields of Mistria" && \
 
 ## Publishing
 
-- `dist/ARPGMovement-2.1.0.zip` — Nexus-ready package.
+- `dist/ARPGMovement-2.1.1.zip` — Nexus-ready package.
 - `nexus/DESCRIPTION.bbcode` — mod page description (BBCode).
 - `nexus/UPLOAD_CHECKLIST.md` — upload steps.

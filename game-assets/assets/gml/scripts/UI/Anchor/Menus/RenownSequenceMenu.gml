@@ -3,6 +3,8 @@ function RenownSequenceMenu() : AnchorMenu(Menu.RenownSequence) constructor {
     self.widget.backplate.set_y(-20);
     self.delay = false;
 
+    self.canvas.set_alpha(0);
+
     self.progress_bar = new ProgressBar(self.canvas, self.widget);
 
     self.progress_bar.level_up_callback = function(order) {
@@ -25,8 +27,12 @@ function RenownSequenceMenu() : AnchorMenu(Menu.RenownSequence) constructor {
 
                 TANGO.play("SoundEffects/UI/RenownLevelUp");
 
+                if MIST.is_running() {
+                    return;
+                }
+
                 var popup = reward_popup(
-                    ANCHOR.wrap_for_local(format("LVL {}", order.level + 1)),
+                    ANCHOR.wrap_for_local(format("{Local} {}", "misc_local/renown_lvl_insert_caps", order.level + 1)),
                     description,
                     "misc_local/level_up",
                     ListFromArray([reward]),
@@ -34,6 +40,7 @@ function RenownSequenceMenu() : AnchorMenu(Menu.RenownSequence) constructor {
                     -10000, //
                 );
                 popup.title.set_sprite_font("medium_2");
+                popup.title.add_y(5);
 
                 var rank = renown_level_to_rank(order.level + 1);
                 ANCHOR.sprite(popup.backplate)
@@ -60,6 +67,16 @@ function RenownSequenceMenu() : AnchorMenu(Menu.RenownSequence) constructor {
             return (level + 1) % RENOWN.levels_per_rank == 0;
         }
     );
+
+    //
+    var last = ease_orders.last();
+    var player_should_win = last != undefined && last.is_level_up && last.level == MAX_RENOWN_LEVEL - 1;
+    if player_should_win && !MIST.is_running() {
+        last.is_level_up = false;
+        last.is_rank_up = false;
+        last.end_percentage = max(0.95, last.start_percentage);
+        last.end_position = self.progress_bar.max_width * last.end_percentage;
+    }
 
     self.chain = new_chain()
         .append(LinkId.Ease, new Ease(EaseId.QuartOut, 0, 1, 30), function(_, a) {
@@ -100,8 +117,10 @@ function renown_status_widget(parent) {
         .set_lut(spr_ui_renown_status_font_lut)
         .set_y(-4)
 
+    nodes.backplate.set_width(max(nodes.text.get_width() + 26, 130));
+
     nodes.level = ANCHOR.text(nodes.backplate)
-        .set_text(format("LVL {}", level))
+        .set_text(format("{Local} {}", "misc_local/renown_lvl_insert_caps", level))
         .set_sprite_font("medium_2")
         .set_lut(spr_ui_renown_status_font_lut)
         .set_align(Align.Center, Align.BottomIn)

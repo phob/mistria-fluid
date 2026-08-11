@@ -73,7 +73,6 @@ function GossipMenu() : AnchorMenu(Menu.Gossip) constructor {
             .set_align(Align.Center, Align.Middle)
             .set_sprite_font("item_count")
             .set_text(format("{}/{}", discovered, total))
-            .set_y(1)
 
         var base_name = proto.dateable ? "spr_ui_gift_hint_nameplate_ribbon_dateable" : "spr_ui_gift_hint_nameplate_ribbon";
         var nameplate = ANCHOR.sprite(card.frame)
@@ -118,6 +117,10 @@ function GossipMenu() : AnchorMenu(Menu.Gossip) constructor {
             card.frame.add_to_pilot(self.pilot);
 
             card.frame.set_tap_callback(function(selection) {
+                if self.selection_made {
+                    return;
+                }
+                self.selection_made = true;
                 TANGO.play("SoundEffects/UI/GossipCardSelect");
                 self.lock();
                 self.chain = new_chain()
@@ -157,6 +160,7 @@ function GossipMenu() : AnchorMenu(Menu.Gossip) constructor {
 
     function display_gift_sequence(selection) {
         NPCS[selection.npc].known_gift_preferences.insert(selection.gift);
+        refresh_achievements([Requirement.AllNpcGiftsDiscovered]);
         ARI.has_gossiped_today = true;
 
         self.unlock();
@@ -238,6 +242,7 @@ function GossipMenu() : AnchorMenu(Menu.Gossip) constructor {
 
     self.pilot = self.new_pilot();
     self.chain = undefined;
+    self.selection_made = false;
     self.cards = List();
     self.popup = undefined;
     self.tooltip = undefined;

@@ -94,7 +94,19 @@ function monster_death_poof(owner, optional_position=undefined) {
                     GAME_STATS.perks[$ perk_to_string(Perk.GenerousInDefeatTwo)] += 1;
                 }
             }
+
+            if game_stats_mines_floor_available() {
+                var key = monster_id_to_string(self.owner.monster_id);
+                if GS_MINES_FLOOR.enemy_kill[$ key] == undefined {
+                    GS_MINES_FLOOR.enemy_kill[$ key] = 0;
+                }
+                GS_MINES_FLOOR.enemy_kill[$ key] += 1;
+
+            }
+
+            instance_destroy(self.owner);
         }
+
         if chance_percent(ARI.perk_value(Perk.Resonance)) {
             var lookup = fiddle_get(format("perks/{Perk}", Perk.Resonance));
             var fix_list = List();
@@ -144,10 +156,6 @@ function monster_death_poof(owner, optional_position=undefined) {
                 node.original_x = undefined;
                 node.original_y = undefined;
             }
-        }
-
-        if self.owner != undefined && instance_exists(self.owner) {
-            instance_destroy(self.owner);
         }
     });
 }
@@ -250,10 +258,6 @@ function create_drops_and_essence(drops, essence, xx, yy, monster_id, coin_count
 
     if game_stats_mines_floor_available() {
         var key = monster_id_to_string(monster_id);
-        if GS_MINES_FLOOR.enemy_kill[$ key] == undefined {
-            GS_MINES_FLOOR.enemy_kill[$ key] = 0;
-        }
-        GS_MINES_FLOOR.enemy_kill[$ key] += 1;
 
         array_push(GS_MINES_FLOOR.enemy_drops, {
             monster: key,
@@ -320,5 +324,58 @@ function create_smoke(xx, yy, sprite, source_depth, smoke_number=5) {
             sprite,
             SMOKE_DEBRIS,
         );
+    }
+}
+
+function monster_category_to_ui_info(cat) {
+    switch cat {
+        case MonsterCategory.Shroom: return {
+            icon: spr_ui_stillwell_quest_icon_mushroom_green,
+            label: "misc_local/shrooms_defeated",
+        };
+        case MonsterCategory.Clod: return {
+            icon: spr_ui_stillwell_quest_icon_rockclod,
+            label: "misc_local/rock_clods_defeated",
+        };
+        case MonsterCategory.Sap: return {
+            icon: spr_ui_stillwell_quest_icon_sapling_green,
+            label: "misc_local/saps_defeated",
+        };
+        case MonsterCategory.Enchantern: return {
+            icon: spr_ui_stillwell_quest_icon_enchantern_blue,
+            label: "misc_local/enchanterns_defeated",
+        };
+        case MonsterCategory.Mite: return {
+            icon: spr_ui_stillwell_quest_icon_stalagmite_green,
+            label: "misc_local/mites_defeated",
+        };
+        case MonsterCategory.Bat: return {
+            icon: spr_ui_stillwell_quest_icon_essence_bat_blue,
+            label: "misc_local/bats_defeated",
+        };
+        case MonsterCategory.Mimic: return {
+            icon: spr_ui_stillwell_quest_icon_mimic,
+            label: "misc_local/mimics_defeated",
+        };
+        case MonsterCategory.Spirit: return {
+            icon: spr_ui_stillwell_quest_icon_flame_spirit,
+            label: "misc_local/spirits_defeated",
+        };
+        case MonsterCategory.Cat: return {
+            icon: spr_ui_stillwell_quest_icon_lava_cat,
+            label: "misc_local/cats_defeated",
+        };
+        case MonsterCategory.RockStack: return {
+            icon: spr_ui_stillwell_quest_icon_rock_stack,
+            label: "misc_local/rock_stacks_defeated",
+        };
+        case MonsterCategory.Statue: return {
+            icon: spr_ui_stillwell_quest_icon_gryphon,
+            label: "misc_local/statues_defeated",
+        };
+        case MonsterCategory.Tome: return {
+            icon: spr_ui_stillwell_quest_icon_flying_tome,
+            label: "misc_local/tomes_defeated",
+        };
     }
 }

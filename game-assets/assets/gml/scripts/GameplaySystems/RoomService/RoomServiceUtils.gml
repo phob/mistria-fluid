@@ -23,6 +23,17 @@ function get_shadow_depth() {
     }
 }
 
+function fix_plaza_footsteps() {
+    var g = GRIDS[LocationId.Town];
+
+    //
+    for (var xx = 20; xx < 50; xx++) {
+        for (var yy = 100; yy < 119; yy++) {
+            var ni = g.node_index_for_cell(xx, yy);
+            g.node_footstep_kind[ni] = FootstepKind.Stone;
+        }
+    }
+}
 
 function get_water_depth() {
     var target;

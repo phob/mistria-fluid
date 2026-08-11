@@ -4,6 +4,7 @@ function Anchor() constructor {
     self.node_registrar = ds_list_create();
     self.pending_node_deletions = ds_list_create();
     self.open_menus = List();
+    self.popup_awaiters = List();
     self.screen_canvas = undefined;
     self.screen_canvas_size = Vec2Zero();
     self.current_hovered_node = undefined;
@@ -172,6 +173,13 @@ function Anchor() constructor {
         return output;
     }
 
+    function popup_is_open() {
+        return self.open_menus.any(function(e) {
+            var valid_to_check = e.type == Menu.Popup && e.spawned && e[$ "is_tooltip"] != true;
+            return valid_to_check && !e.free_requested;
+        });
+    }
+
     function on_begin_step() {
         if DEBUG_TOOLS {
             var span = profile_span_start("Anchor::on_begin_step");
@@ -264,13 +272,23 @@ function Anchor() constructor {
             }
         }
 
+        //
+        //
+        while !self.popup_awaiters.is_empty() && !self.popup_is_open() {
+            var awaiter = self.popup_awaiters.remove(0);
+            function_execute_alt(awaiter.func, awaiter.args);
+        }
+
         if is_world_room(room()) && regenerate_pause_status {
             for (var i = 0; i < self.open_menus.count(); i++) {
                 var menu = self.open_menus.get(i);
                 PAUSE_STATUS |= menu.data.pause;
             }
 
-            if PAUSE_STATUS == PauseStatus.EMPTY && instance_exists(obj_ari) {
+            if PAUSE_STATUS == PauseStatus.EMPTY
+                && instance_exists(obj_ari)
+                && self.get_menu(Menu.Eod) == undefined
+            {
                 CAMERA.follow_instance_instant(obj_ari);
             }
         }
@@ -466,7 +484,6 @@ function Anchor() constructor {
                                 if passes {
                                     new_request = fmt("{}{}", new_request, keyboard_str);
                                     node.set_text(new_request);
-                                    node.filter_text();
                                 }
                             }
                             if keyboard_check_pressed(vk_backspace) && string_length(node.get_text()) > 0 {
@@ -544,6 +561,10 @@ function Anchor() constructor {
 
                                             if MIST.blackboard.get("caldarus_textbox_hack") == true {
                                                 TANGO.play("SoundEffects/NPCs/Vocal/TextBlipCaldarus");
+                                            }
+
+                                            if MIST.blackboard.get("linnet_textbox_hack") == true {
+                                                TANGO.play("SoundEffects/NPCs/Vocal/TextBlipWiscar");
                                             }
                                         }
                                         break;
@@ -718,6 +739,9 @@ function Anchor() constructor {
                     if node.cache_is_dirty {
                         process_node_dirty_child(node);
                         node.update_display_text();
+                        if DEBUG_ASSERTIONS {
+                            node.check_spillover();
+                        }
                         process_node_alpha(node, parent);
                         process_node_position(node, parent);
                         process_node_bbox(node);
@@ -802,7 +826,7 @@ function Anchor() constructor {
 
             rendered_anything = false;
 
-            gpu_set_extra(UberShaderKind.AnchorSprite, 0, 0, -1);
+            gpu_set_extra(UberShaderKind.AnchorSprite, 0, 0, 0);
             var queue = layer_render_queue[NodeId.Sprite];
             for (var i = 0, c = ds_list_size(queue); i < c; i++) {
                 var node = queue[| i];
@@ -864,7 +888,7 @@ function Anchor() constructor {
                 if lut_node != undefined {
                     var column_idx = lut_node.get_lut_index();
                     if column_idx > 0 {
-                        shader_set_texture("u_LutTexture", lut_node.lut_info.texture);
+                        shader_set_texture("u_LutTexture", lut_node.lut_info.texture, 0, "u_LutTexelSize");
                         gpu_set_extra(UberShaderKind.AnchorSprite, lut_node.lut_info.uvs[0], lut_node.lut_info.uvs[1], column_idx);
                     }
                 }
@@ -1009,7 +1033,7 @@ function Anchor() constructor {
                 }
 
                 if lut_node != undefined {
-                    gpu_set_extra(UberShaderKind.AnchorSprite, 0, 0, -1);
+                    gpu_set_extra(UberShaderKind.AnchorSprite, 0, 0, 0);
                 }
             }
 
@@ -1055,7 +1079,7 @@ function Anchor() constructor {
                 if node.lut_info.enabled {
                     var column_idx = node.get_lut_index();
                     if column_idx > 0 {
-                        shader_set_texture("u_LutTexture", node.lut_info.texture);
+                        shader_set_texture("u_LutTexture", node.lut_info.texture, 0, "u_LutTexelSize");
                         gpu_set_extra(UberShaderKind.AnchorSprite, node.lut_info.uvs[0], node.lut_info.uvs[1], column_idx);
                     }
                 }
@@ -1084,7 +1108,7 @@ function Anchor() constructor {
                 }
 
                 if node.lut_info.enabled {
-                    gpu_set_extra(UberShaderKind.AnchorSprite, 0, 0, -1);
+                    gpu_set_extra(UberShaderKind.AnchorSprite, 0, 0, 0);
                 }
             }
 
@@ -1094,7 +1118,7 @@ function Anchor() constructor {
             }
 
             //
-            gpu_set_extra(UberShaderKind.AnchorText, 0, 0, -1);
+            gpu_set_extra(UberShaderKind.AnchorText, 0, 0, 0);
             var queue = layer_render_queue[NodeId.Text];
             var c = ds_list_size(queue);
             for (var i = 0; i < c; i++) {
@@ -1125,10 +1149,10 @@ function Anchor() constructor {
                     lut_source = node.canvas;
                 }
                 if lut_source.lut_info.enabled {
-                    shader_set_texture("u_LutTexture", lut_source.lut_info.texture);
+                    shader_set_texture("u_LutTexture", lut_source.lut_info.texture, 0, "u_LutTexelSize");
                     gpu_set_extra(UberShaderKind.AnchorText, lut_source.lut_info.uvs[0], lut_source.lut_info.uvs[1], lut_source.get_lut_index());
                 } else {
-                    gpu_set_extra(UberShaderKind.AnchorText, 0, 0, -1);
+                    gpu_set_extra(UberShaderKind.AnchorText, 0, 0, 0);
                 }
 
                 if node.canvas.render_partial_info.enabled {
@@ -1196,7 +1220,7 @@ function Anchor() constructor {
             var queue = layer_render_queue[NodeId.Typewriter];
             var c = ds_list_size(queue);
             if c > 0 {
-                gpu_set_extra(UberShaderKind.AnchorText, 0, 0, -1);
+                gpu_set_extra(UberShaderKind.AnchorText, 0, 0, 0);
             }
             for (var i = 0; i < c; i++) {
                 var node = queue[| i];
@@ -1213,11 +1237,13 @@ function Anchor() constructor {
                 }
                 rendered_anything = true;
 
+                gpu_set_depth(node.z);
+
                 draw_set_font(node.font);
                 draw_set_halign(HorizontalOffset.Left);
                 draw_set_valign(VerticalOffset.Top);
 
-                shader_set_texture("u_LutTexture", node.lut_info.texture);
+                shader_set_texture("u_LutTexture", node.lut_info.texture, 0, "u_LutTexelSize");
                 gpu_set_extra(UberShaderKind.AnchorText, node.lut_info.uvs[0], node.lut_info.uvs[1], node.get_lut_index());
 
                 if node.canvas.render_partial_info.enabled {
@@ -1323,8 +1349,7 @@ function Anchor() constructor {
             }
 
             //
-            shader_reset_to_default();
-
+            gpu_reset_extra();
             var queue = layer_render_queue[NodeId.Custom];
             for (var i = 0, c = ds_list_size(queue); i < c; i++) {
                 var node = queue[| i];
@@ -1347,6 +1372,7 @@ function Anchor() constructor {
                 function_execute_alt(node.event_callbacks.render.func, args);
 
                 rendered_anything = true;
+                gpu_set_depth_test(cmpfunc_lessequal);
             }
 
             if rendered_anything {
@@ -1452,6 +1478,7 @@ function Anchor() constructor {
         var par_offset = fiddle_deserialize_vec2(fiddle_get("player/par/offset"));
         par.set_cardinal(Cardinal.South);
         animation_data.apply_to_par(par);
+        handle_child_on_par(par);
         par.set_animation(AnimationName.Idle);
         par.scale = scale;
         par.clipping_canvas = clipping_canvas;
@@ -1462,9 +1489,9 @@ function Anchor() constructor {
             .set_gui_resize_callback(function(par, scale) {
                 par.scale = scale;
             }, [par, scale])
-            .set_render_callback(function(xx, yy, _width, _height, _color, alpha, _z, par, resize) {
+            .set_render_callback(function(xx, yy, _width, _height, _color, alpha, z, par, resize) {
                 par.alpha = alpha;
-                par.render_offscreen();
+                gpu_set_depth(z);
 
                 var old_scissor = undefined;
                 if par.clipping_canvas != undefined {
@@ -1480,7 +1507,10 @@ function Anchor() constructor {
                         part.height,
                     );
                 }
+
+                gpu_set_blendmode_ext(bm_src_alpha, bm_inv_src_alpha);
                 par.draw(xx, yy);
+                gpu_set_blendmode_ext(bm_one, bm_inv_src_alpha);
 
                 if par.clipping_canvas != undefined {
                     if old_scissor == undefined {
@@ -1500,35 +1530,19 @@ function Anchor() constructor {
         return string_width_font(text, font) + additional_padding;
     }
 
-    function text_height(text, width, font, line_height=DEFAULT_LINE_HEIGHT) {
+    function text_height(text, width, font, line_height, force_reflow=false) {
         font = font == undefined ? ANCHOR.get_text_font() : font;
         draw_set_font(font);
-        return string_height(self.reflow(text, width, font), line_height, I32_MAX);
+        return string_height(self.reflow(text, width, font, force_reflow), line_height, I32_MAX);
     }
 
     //
-    function reflow(text, width, font) {
-        if !local_get_info(LocalInfoRequest.AutomaticLinebreaks) {
+    function reflow(text, width, font, force=false) {
+        if !local_get_info(LocalInfoRequest.AutomaticLinebreaks) && !force {
             return text;
         }
         font = font == undefined ? ANCHOR.get_text_font() : font;
         return string_apply_newlines(text, width, font);
-    }
-
-    //
-    //
-    //
-    function height_for_text_container(
-        text,
-        container_width,
-        additional_padding=12,
-        line_height=DEFAULT_LINE_HEIGHT,
-        font,
-    ) {
-        font = font == undefined ? ANCHOR.get_text_font() : font;
-        var display_text = self.reflow(text, container_width * 0.95, font);
-        draw_set_font(font);
-        return string_height(display_text, line_height, 1000000) + additional_padding;
     }
 
     //
@@ -1569,10 +1583,6 @@ function Anchor() constructor {
         for (var i = 0, c = self.node_count; i < c; i++) {
             var node = self.node_registrar[| i];
             if node.type == NodeId.Text {
-                if node.local_key != undefined {
-                    node.text = local_get(node.get_local_key());
-                }
-                node.cache_is_dirty = true;
                 if !node.font_is_forced {
                     if node.text_style != undefined {
                         node.set_text_style(node.text_style);
@@ -1580,6 +1590,12 @@ function Anchor() constructor {
                         node.set_font(node.font);
                     }
                 }
+                if node.local_key != undefined {
+                    var key = node.local_key;
+                    node.local_key = undefined;
+                    node.set_key(key);
+                }
+                node.cache_is_dirty = true;
             }
         }
     }
@@ -1751,8 +1767,7 @@ function Anchor() constructor {
     function get_relative_position(node, target) {
         var node_iter = node;
         var position = Vec2Zero();
-        while true {
-            //
+        while node_iter.parent != undefined {
             process_node_position(node_iter, node_iter.parent);
             position.x += node_iter.cache_x - node_iter.parent.cache_x;
             position.y += node_iter.cache_y - node_iter.parent.cache_y;
@@ -1761,6 +1776,11 @@ function Anchor() constructor {
             }
             node_iter = node_iter.parent;
         }
+
+        if DEBUG_ASSERTIONS {
+            crash("{AnchorNode} is not a descendant of {AnchorNode}!", node, target);
+        }
+        return position;
     }
 
     function mouse_interacting_with_any_node() {
@@ -1884,10 +1904,14 @@ function Anchor() constructor {
     //
     //
     //
+    //
+    //
+    //
+    //
     function try_pilot_hover(play_sound=false) {
         if self.active_pilot != undefined && self.in_directional_control() {
             var node = self.active_pilot.get();
-            if node != undefined && self.current_hovered_node != node {
+            if node != undefined && !node.freed && self.current_hovered_node != node {
                 self.hover_node(node, play_sound);
                 if self.active_pilot.tap_on_hover_flag {
                     self.tap_node(node);

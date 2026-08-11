@@ -45,13 +45,15 @@ function create_essence_morsels(pos_x, pos_y, dist, amount, depth_level=0) {
     return amount;
 }
 
-function create_morsel(pos_x, pos_y, dist, morsel_type, morsel_size, amount, depth_level=0) {
+function create_morsel(pos_x, pos_y, dist, morsel_type, morsel_size, amount, depth_level=0, play_sound=true) {
     var _dir = random_range(67.5, 112.5);
     var _len = random_range(4, dist);
     var move_x = lengthdir_x(_len, _dir);
     var move_y = lengthdir_y(_len, _dir);
 
-    TANGO.play("SoundEffects/Inventory/EssenceDrop", pos_x, pos_y);
+    if play_sound {
+        TANGO.play("SoundEffects/Inventory/EssenceDrop", pos_x, pos_y);
+    }
 
     return instance_create_depth(pos_x, pos_y, depth_level, obj_morsel, {
         move_x: move_x,
@@ -59,6 +61,7 @@ function create_morsel(pos_x, pos_y, dist, morsel_type, morsel_size, amount, dep
         size: morsel_size,
         type: morsel_type,
         amount: amount,
+        play_sound,
     });
 }
 

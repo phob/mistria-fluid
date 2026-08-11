@@ -1,4 +1,31 @@
 global.prop_map = undefined;
+function toggle_asset_visibility(asset_name, mist=true) {
+    var sprite = string_to_asset(asset_name);
+
+    if DEBUG_ASSERTIONS && mist {
+        var cutscene_data = CUTSCENES.get(MIST.active_cutscene.id);
+        var success = false;
+        for (var i = 0, c = array_length(cutscene_data.invisible_assets); i < c; i++) {
+            if cutscene_data.invisible_assets[i] == sprite {
+                success = true;
+                break;
+            }
+        }
+        assert(success, "asset {} was not well defined in cutscene.toml", asset_name);
+    }
+
+    with obj_assetobject {
+        if sprite_index == sprite {
+            visible = !visible;
+            if self.light != undefined {
+                self.light.show = !self.light.show;
+            }
+            shadow_caster_set_alpha(self.shadow_caster, 0);
+            break;
+        }
+    }
+}
+
 function mist_position_input(xx, yy) {
     if is_string(xx) {
         if xx == "ari" {
@@ -61,11 +88,6 @@ function define_std(_runtime) {
                     sprite_index = spr_beach_barn_door_spring_closed;
                 }
             }
-        });
-
-        create_function("skip_to", function(checkpoint) {
-            assert(DEBUG_TOOLS, "skip_to requires DEBUG_TOOLS!!");
-            MIST.runtime.begin_simulation(checkpoint);
         });
 
         create_function("checkpoint", function(checkpoint) {
@@ -143,7 +165,8 @@ function define_std(_runtime) {
             var driver = self.blackboard.get("driver");
             if MIST.runtime.is_simulating() {
                 if driver.next_line_behavior != undefined && driver.next_line_behavior.type == NextLineBehaviorId.Prompts {
-                    T2R.conversation_select_prompt(0);
+                    driver.prompt_index_selected = MIST.runtime.simulated_prompt_index;
+                    T2R.conversation_select_prompt(driver.prompt_index_selected);
                 }
                 driver.advance_t2();
                 return;
@@ -246,8 +269,7 @@ function define_std(_runtime) {
             } else if try_string_to_npc_id(_name) != undefined {
                 return npc_id_to_gm_obj_id(string_to_npc_id(_name));
             } else {
-                var _cameo = string_to_cameo_id(_name);
-                return obj_cameo;
+                return cameo_id_to_gm_obj_id(string_to_cameo_id(_name));
             }
         }
 
@@ -448,6 +470,8 @@ function define_std(_runtime) {
             } else if obj.object_index == obj_cutscene_animal {
                 obj.fsm.blackboard.set("animation", animation_name);
                 obj.fsm.change_state(CutsceneAnimalState.Animate);
+            } else if obj.object_index == obj_pet {
+                //
             } else {
                 obj.me.set_animation(animation_name);
             }
@@ -692,16 +716,15 @@ function define_std(_runtime) {
                 obj_pet.y = position.y;
             } else if actor_obj == obj_void_ari {
                 instance_create_layer(position.x, position.y, "Instances", obj_void_ari);
-            } else if actor_obj == obj_cameo {
-                var inst = instance_create_depth(position.x, position.y, 0, actor_obj);
-                var cameo = MIST.cameos.get(string_to_cameo_id(_actor));
-                cameo.location_position = new LocationPosition(gm_room_to_location_id(room()), Vec2(position.x, position.y));
-                inst.initialize(cameo);
             } else {
                 var inst = instance_create_depth(position.x, position.y, 0, actor_obj);
-                var npc = MIST.npcs.get(actor_obj.npc_id);
-                npc.location_position = new LocationPosition(gm_room_to_location_id(room()), Vec2(position.x, position.y));
-                inst.initialize(npc);
+                var cameo_id = try_string_to_cameo_id(_actor);
+                var me = cameo_id != undefined
+                    ? MIST.cameos.get(string_to_cameo_id(_actor))
+                    : MIST.npcs.get(actor_obj.npc_id);
+
+                me.location_position = new LocationPosition(gm_room_to_location_id(room()), Vec2(position.x, position.y));
+                inst.initialize(me);
             }
         });
 
@@ -769,6 +792,9 @@ function define_std(_runtime) {
         })
 
         create_function("__chat", function(npc_a, npc_b) {
+            if try_string_to_cameo_id(npc_a) != undefined || try_string_to_cameo_id(npc_b) != undefined {
+                return; //
+            }
             actor_name_to_object(npc_a).chat_with(string_to_npc_id(npc_b));
         });
 
@@ -822,6 +848,10 @@ function define_std(_runtime) {
             return SCREEN_FADER.active_fade != undefined;
         });
 
+        create_function("__get_new_day_location_id", function() {
+            return location_id_to_string(player_wake_position().location_id);
+        })
+
         create_function("__get_new_day_spawn_x", function() {
             return player_wake_position().pos.x;
         })
@@ -836,6 +866,10 @@ function define_std(_runtime) {
 
         create_function("spouse_wake_y", function() {
             return spouse_wake_position().pos.y;
+        })
+
+        create_function("spouse", function() {
+            return npc_id_to_string(ARI.spouse());
         })
 
         create_function("__pan_camera", function(_seconds, _x, _y, _ease) {
@@ -944,6 +978,25 @@ function define_std(_runtime) {
                     var menu = ANCHOR.spawn_menu(Menu.Inbox);
                     menu.display_letter(0);
                     break;
+                case "customization":
+                    var preset = ARI.presets.get(ARI.preset_index_selected).clone();
+                    if !TEST_SUITE {
+                        var menu = start_character_creation(preset, function() {}, false);
+                        menu.continue_button.text_label.set_key("misc_local/continue");
+                        menu.continue_button.set_tap_callback(function(menu) {
+                            var popup = popup_creator("misc_local/confirm", "misc_local/wedding_outfit_confirmation");
+                            popup.create_button("misc_local/no", function(menu) {
+                                menu.unlock();
+                            }, [menu]);
+                            popup.create_button("misc_local/yes", function(menu) {
+                                menu.close();
+                                ANCHOR.free_node(menu.continue_button);
+                            }, [menu]);
+                            popup.spawn();
+                        }, [menu], true)
+                    }
+                    self.blackboard.insert("wedding_outfit", preset);
+                    break;
                 case "request_board":
                     var menu = spawn_request_board_menu();
                     menu.journal.listen_for_exit_flag = false;
@@ -986,6 +1039,7 @@ function define_std(_runtime) {
                     return ANCHOR.get_menu(Menu.CraftingSequence) != undefined;
                 case "request_board":
                     return ANCHOR.get_menu(Menu.QuestLog) != undefined;
+                case "customization": return ANCHOR.get_menu(Menu.Customization) != undefined;
                 default:
                     return ANCHOR.get_menu(string_to_menu(name)) != undefined;
             }
@@ -1048,7 +1102,7 @@ function define_std(_runtime) {
             MUSIC_PLAYER.refresh();
         });
 
-        create_function("__play_item_toast", function(item, count) {
+        create_function("__play_item_toast", function(item, count=1) {
             item = handle_item_input(item);
             TANGO.play("SoundEffects/Inventory/ItemPickup");
             ANCHOR.get_menu(Menu.ItemToasts).create_pickup(item, count);
@@ -1256,30 +1310,7 @@ function define_std(_runtime) {
         })
 
         create_function("toggle_asset_visibility", function(asset_name) {
-            var sprite = string_to_asset(asset_name);
-
-            if DEBUG_ASSERTIONS {
-                var cutscene_data = CUTSCENES.get(MIST.active_cutscene.id);
-                var success = false;
-                for (var i = 0, c = array_length(cutscene_data.invisible_assets); i < c; i++) {
-                    if cutscene_data.invisible_assets[i] == sprite {
-                        success = true;
-                        break;
-                    }
-                }
-                assert(success, "asset {} was not well defined in cutscene.toml", asset_name);
-            }
-
-            with obj_assetobject {
-                if sprite_index == sprite {
-                    visible = !visible;
-                    if self.light != undefined {
-                        self.light.show = !self.light.show;
-                    }
-                    shadow_caster_set_alpha(self.shadow_caster, 0);
-                    break;
-                }
-            }
+            toggle_asset_visibility(asset_name);
         });
 
         create_function("toggle_object_visibility", function(object_name) {
@@ -1592,8 +1623,8 @@ function define_std(_runtime) {
             }
         });
 
-        create_function("__harvest_festival_pathfind_setup", function() {
-            PATHFINDING.harvest_festival_ignore_pathfinding_costs();
+        create_function("enable_simple_pathfinding", function() {
+            PATHFINDING.enable_simple_pathfinding();
             with par_NPC {
                 self.pathfinding_agent.meddler.release_reservations();
                 self.pathfinding_agent.meddler = undefined;
@@ -1669,8 +1700,13 @@ function define_std(_runtime) {
 
         create_function("raise_actor", function(actor) {
             var obj = actor_name_to_object(actor);
-            obj.z = -1000;
-            obj.depth = get_instance_depth(obj.y, obj.z);
+            if actor == "ari" {
+                obj_ari.fsm.current_state().set_depth = false;
+                obj_ari.can_set_depth_in_pause = false;
+                obj.depth = FIRE_SEAL_BLACK_OVERLAY_DEPTH - 1;
+            } else {
+                obj.z = FIRE_SEAL_BLACK_OVERLAY_DEPTH - 1;
+            }
         });
 
         create_function("lower_actor", function(actor) {
@@ -1730,25 +1766,36 @@ function define_std(_runtime) {
         create_function("capture_date_photo", function() {
             with par_NPC {
                 self.visible = false;
+                shadow_caster_set_alpha(self.shadow_caster, 0.0);
             }
             obj_ari.visible = false;
-            with obj_shadow_level {
-                self.visible = false;
+            shadow_caster_set_alpha(obj_ari.shadow_caster, 0.0);
+            with obj_bug {
+                self.cutscene_started();
             }
-            DATE_PHOTO_REQUEST = [
-                string_to_npc_id(MIST.get_from_runtime_blackboard("date_partner")),
-                MIST.get_from_runtime_blackboard("date"),
-            ];
+            var partner = undefined;
+            var date = undefined;
+            if MIST.active_cutscene.id == "wedding" {
+                date = Date.Wedding;
+                partner = ARI.fiance() ?? NpcId.Juniper;
+            } else {
+                partner = string_to_npc_id(MIST.get_from_runtime_blackboard("date_partner"));
+                date = MIST.get_from_runtime_blackboard("date");
+            }
+            DATE_PHOTO_REQUEST = [partner, date];
 
             new_chain()
                 .append(LinkId.Timer, 1)
                 .append(LinkId.Function, function() {
                     with par_NPC {
                         self.visible = true;
+                        shadow_caster_set_alpha(self.shadow_caster, 1.0);
                     }
                     obj_ari.visible = true;
-                    with obj_shadow_level {
-                        self.visible = true;
+                    shadow_caster_set_alpha(obj_ari.shadow_caster, 1.0);
+
+                    with obj_bug {
+                        self.cutscene_ended();
                     }
                 }, [])
         })
@@ -1922,10 +1969,7 @@ function define_std(_runtime) {
                 lut_index: 1,
             });
 
-            obj_ari.par.render_hair = active_preset.should_render_hair();
-            active_preset.assets.for_each(function(asset) {
-                obj_ari.par.set_asset(asset.name, asset.lut_index);
-            });
+            build_obj_ari_par_from(active_preset);
 
             MIST.blackboard.set("par_asset_cache", cache_preset);
         })
@@ -1934,6 +1978,10 @@ function define_std(_runtime) {
 
         create_function("caldarus_textbox_hack", function(boo) {
             MIST.blackboard.set("caldarus_textbox_hack", boo);
+        })
+
+        create_function("linnet_textbox_hack", function(boo) {
+            MIST.blackboard.set("linnet_textbox_hack", boo);
         })
 
         create_function("start_sepia", function() {
@@ -2103,6 +2151,119 @@ function define_std(_runtime) {
 
         create_function("past_year_one", function() {
             return CALENDAR.time > years(1);
+        })
+
+        create_function("__trigger_birth", function() {
+            var spouse = ARI.spouse();
+            var child = NPC_PROTOTYPES[spouse].children[array_length(ARI.children)];
+            trigger_birth(child);
+
+            if TEST_SUITE {
+                var popup = ANCHOR.get_menu(Menu.Popup);
+                ANCHOR.tap_node(popup.buttons.first());
+            }
+        })
+
+        create_function("evaluate_wedding_actors", function() {
+            var spouse = ARI.fiance();
+            if spouse == undefined {
+                warn("You have no fiance?! Using Juniper instead...");
+                spouse = NpcId.Juniper;
+            }
+            MIST.runtime.blackboard.insert("wedding_actors", wedding_party_for(spouse));
+        });
+
+        create_function("ceremony_actor", function(key) {
+            var a = MIST.runtime.blackboard.get("wedding_actors").ceremony[$ key];
+            return a ?? "undefined";
+        });
+
+        create_function("reception_actor", function(key) {
+            var a = MIST.runtime.blackboard.get("wedding_actors").reception[$ key];
+            return a ?? "undefined";
+        });
+
+        create_function("ari_house_exit_x", function() {
+            return player_home_safe_position(CURRENT_LOCATION_ID).x;
+        });
+
+        create_function("ari_house_exit_y", function() {
+            return player_home_safe_position(CURRENT_LOCATION_ID).y;
+        });
+
+        create_function("apply_wedding_outfit", function() {
+            var preset = self.blackboard.get("wedding_outfit");
+            build_obj_ari_par_from(preset);
+        })
+
+        create_function("create_black_overlay", function() {
+            var lay = layer_create(FIRE_SEAL_BLACK_OVERLAY_DEPTH, "BlackBackground");
+            var back_asset = layer_asset_create_tiled(lay, -1000, -1000, mwe_white_pixel, room_width() + 2000, room_height() + 2000);
+            layer_asset_set_blend(back_asset, c_black, 1.0);
+            MIST.blackboard.insert("black_overlay", lay);
+        });
+
+        create_function("spawn_baby_prop", function(x, y) {
+            var position = mist_position_input(x, y);
+            var child = potential_child();
+            var sprite = child.get_sprite("idle_diagonal", Cardinal.South);
+            create_sprite_renderer(position.x, position.y, -999, sprite);
+        });
+
+        create_function("spawn_stork_baby_prop", function() {
+            var position = trellis_point_find_by_name(room(), "gb_bird");
+            var child = potential_child();
+            var sprite = child.get_sprite("idle_diagonal", Cardinal.South);
+            var inst = create_sprite_renderer(position.x, position.y + 3, -99999, sprite);
+            new_chain().append(LinkId.Ease, new Ease(EaseId.Linear, 0, 1, 180), function(_, a, inst) {
+                if !instance_is_alive(inst) {
+                    return;
+                }
+                inst.image_alpha = a;
+            }, [inst])
+        });
+
+        create_function("wedding_cosmetic_popup", function() {
+            if TEST_SUITE {
+                return;
+            }
+
+            var items = fiddle_get("misc/wedding_assets");
+            for (var i = 0; i < array_length(items); i++) {
+                ARI.cosmetic_unlocks.insert(items[i]);
+            }
+            var item = LiveItem(ItemId.Cosmetic);
+            item.cosmetic = "head_wedding_veil";
+            new_item_popup(item);
+        })
+
+        create_function("is_defined", function(value) {
+            return !matches(value, "undefined", undefined);
+        })
+
+        create_function("mistril_renown_sequence", function() {
+            //
+            ARI.renown = renown_level_total_cost(99) + (renown_level_individual_cost(100) * 0.95);
+            ARI.pending_renown_entries.push(RenownEntry.Gold(9999));
+            var menu = ANCHOR.spawn_menu(Menu.RenownSequence);
+            ARI.renown = renown_level_total_cost(100);
+            ARI.pending_renown_entries.clear();
+        })
+
+        create_function("chicken_give_egg", function() {
+            obj_chicken_statue.prize = List(new LiveItem(ItemId.BigEgg));
+            obj_chicken_statue.sprite_index = obj_chicken_statue.on_sprite;
+            obj_chicken_statue.image_speed = 1;
+        });
+
+        create_function("freeze_actor", function(actor) {
+            var actor = actor_name_to_object(actor);
+            actor.anim_speed = 0;
+        })
+
+        create_function("unfreeze_actor", function(actor) {
+            var actor = actor_name_to_object(actor);
+            actor.anim_speed = 1;
         })
     }
 }

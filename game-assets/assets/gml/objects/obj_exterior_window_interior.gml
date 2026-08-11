@@ -56,7 +56,7 @@ object_create(
         draw: function() {
             //
             gpu_set_extra(UberShaderKind.WindowFill, self.uvs[0], self.uvs[1], real(self.lut_column_idx));
-            shader_set_texture("u_LutTexture", self.lut_texture);
+            shader_set_texture("u_LutTexture", self.lut_texture, 0, "u_LutTexelSize");
 
             for (var window_color = 0; window_color < 6; window_color++) {
                 var yy = self.horizon_line - 6 + window_color;

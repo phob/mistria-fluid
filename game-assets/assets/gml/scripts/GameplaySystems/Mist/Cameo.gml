@@ -2,6 +2,11 @@
 CAMEO_PROTOTYPES = undefined;
 
 enum CameoId {
+    Linnet,
+    Wiscar,
+    GreatBird,
+    Darren,
+    Wynne,
     LEN
 }
 
@@ -18,6 +23,7 @@ function load_cameo_prototypes() {
             name: data.name,
             wardrobe_outfits,
             offsets: data.offsets,
+            voice: data.voice,
             portrait_sound_overrides: data[$ "portrait_sound_overrides"] ?? {},
         };
     }
@@ -40,22 +46,14 @@ function Cameo(idx, brain) constructor {
 
     function set_animation(animation_name) {
         self.animation = animation_name;
-        with obj_cameo {
-            if other.id != self.me.id {
-                continue;
-            }
-
+        with cameo_id_to_gm_obj_id(self.id) {
             self.update_animation();
         }
     }
 
     function set_cardinality(cardinal) {
         self.cardinality = cardinal;
-        with obj_cameo {
-            if other.id != self.me.id {
-                continue;
-            }
-
+        with cameo_id_to_gm_obj_id(self.id) {
             self.update_cardinality();
         }
     }

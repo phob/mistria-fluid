@@ -19,7 +19,7 @@ function spawn_museum_donation_menu() {
     var button = ANCHOR.nine_slice(menu.left_box);
     button
         .set_sprites_from_key("spr_ui_button")
-        .set_size(59, 18)
+        .set_size(68, 18)
         .set_align(Align.Center, Align.BottomIn)
         .set_y(-27)
         .add_text_label("misc_local/donate", COMMON_LUT, CommonLutIndex.Dark)
@@ -36,10 +36,18 @@ function spawn_museum_donation_menu() {
 
             handle_donation_ui_for_results(results);
 
+            refresh_achievements([
+                Requirement.CompletedMuseum,
+                Requirement.CompletedMuseumSet,
+                Requirement.CompletedMuseumSetWithin,
+            ]);
+
+            T2R.write("completed_museum", requirements_pass(ACHIEVEMENTS[Achievement.CelebratedCurator]));
+
             menu.close();
         }, [menu, basket])
 
-    button.text_label.set_x(4)
+    button.text_label.set_x(6)
 
     ANCHOR.sprite(button.text_label)
         .set_sprite(spr_ui_bark_icon_museum)
@@ -61,12 +69,6 @@ function handle_donation_ui_for_results(results, spawn_popups=true) {
             return result.type == DonationResult.CompletedSet;
         });
 
-    var unfinished = results
-        .clone()
-        .retain(function(result) {
-            return result.type == DonationResult.ProgressMade;
-        });
-
     var items_donated = results
         .clone()
         .map(function(result) {
@@ -76,23 +78,33 @@ function handle_donation_ui_for_results(results, spawn_popups=true) {
     if spawn_popups {
         var visited_sets = HashSet();
 
-        var len = unfinished.count();
+        var len = results.count();
         for (var i = 0; i < len; i++) {
-            var result = unfinished.get(i);
+            var result = results.get(i);
+            if result.type == DonationResult.None {
+                continue;
+            }
+
             var unique_key = format("{MuseumWing}__{}", result.wing, result.set);
             if visited_sets.insert(unique_key) {
                 continue;
             }
-            await_popup(function(result, items_donated) {
-                new_donation_popup(result.wing, result.set, items_donated);
-            }, [result, items_donated]);
-        }
 
-        var len = completions.count();
-        for (var i = 0; i < len; i++) {
-            var completion = completions.get(i);
-            var unique_key = format("{MuseumWing}__{}", completion.wing, completion.set);
-            visited_sets.insert(unique_key);
+            if result.type == DonationResult.ProgressMade {
+                await_popup(function(result, items_donated) {
+                    new_donation_popup(result.wing, result.set, items_donated);
+                }, [result, items_donated]);
+            }
+
+            var completion_idx = completions.find(function(completion, wing, set) {
+                return completion.wing == wing && completion.set == set;
+            }, result.wing, result.set);
+
+            if completion_idx == undefined {
+                continue;
+            }
+
+            var completion = completions.get(completion_idx);
 
             array_push(GAME_STATS.set_completions, {
                 set: completion.set.name,
@@ -120,6 +132,51 @@ function handle_donation_ui_for_results(results, spawn_popups=true) {
             }, [completion])
         }
     }
+}
+
+function museum_set_popup(wing, set_name) {
+    var set = MUSEUM_DATA.data[wing].sets.get(set_name);
+    var assets = ListFromArray(set.items);
+    var padding = 12;
+
+    var popup = popup_creator("misc_local/placeholder");
+    popup.backplate.set_width(202);
+
+    popup.header
+        .set_xy(0, 0)
+        .set_sprite(spr_ui_tooltip_header_box)
+        .set_size(popup.backplate.get_width(), 36)
+
+    popup.title
+        .set_align(Align.Center, Align.Middle)
+        .set_key(set.display_name)
+
+    var layout = new GridLayout(assets, undefined, assets.count());
+    var container_size = layout.container_size();
+
+    popup.backplate.set_height(
+        popup.header.get_height() + padding + container_size.y + padding + COMMON_BUTTON_HEIGHT + 10
+    );
+
+    var container = ANCHOR.positional(popup.backplate)
+        .set_size(container_size)
+        .set_align(Align.Center, Align.TopIn)
+        .set_y(popup.header.get_height() + padding)
+
+    while layout.has_next() {
+        var next = layout.next(container);
+        if next.asset != undefined {
+            var item = new LiveItem(next.asset);
+
+            next.icon
+                .set_sprite(item.get_ui_icon())
+                .set_color(MUSEUM_PROGRESS[item.item_id] ? c_white : MUSEUM_LOCKED_OVERLAY)
+        }
+    }
+
+    popup.create_button("misc_local/close");
+
+    popup.spawn();
 }
 
 function new_donation_popup(wing, set, new_items) {

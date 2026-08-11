@@ -8,6 +8,9 @@ function new_season() {
 
     var old_season = go_back_a_season(season);
 
+    portrait_atlas_unload(season_to_portrait_atlas(old_season));
+    portrait_atlas_load(season_to_portrait_atlas(season));
+
     //
     for (var i = 0; i < LocationId.LEN; i++) {
         if LOCATIONS[i].outdoor == false {
@@ -61,4 +64,17 @@ function new_season() {
         season,
         get_timer() - start_time,
     );
+}
+
+function season_to_portrait_atlas(season) {
+    switch season {
+        case Season.Spring:
+            return "PortraitsSpring";
+        case Season.Summer:
+            return "PortraitsSummer";
+        case Season.Fall:
+            return "PortraitsAutumn";
+        case Season.Winter:
+            return "PortraitsWinter";
+    }
 }

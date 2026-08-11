@@ -48,7 +48,7 @@ function AlmanacMenu() : AnchorMenu(Menu.Almanac) constructor {
         var icon = ANCHOR.sprite(element.text_label)
             .set_sprite(icon)
             .set_align(Align.LeftOut, Align.Middle)
-            .set_xy(-4, -1)
+            .set_x(-4)
 
         ANCHOR.text(element)
             .set_sprite_font("player_level")

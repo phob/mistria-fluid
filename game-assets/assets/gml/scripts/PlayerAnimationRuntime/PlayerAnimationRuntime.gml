@@ -2,28 +2,32 @@
 //
 //
 //
-#macro SURFACE_OFFSET_X 24
-#macro SURFACE_OFFSET_Y 24
 #macro PAR_SURFACE_SIZE 128
+
+//
+#macro PAR_OFFSET 80
 
 function PlayerAnimationRuntime() constructor {
     self.cardinal = undefined;
     self.slots = array_create(AnimationSlot.LEN, undefined);
     self.priority = ds_priority_create();
+    self.priority_this_frame = array_create(AnimationSlot.LEN);
     self.attachment = undefined;
     self.held_sprite = undefined;
     self.animation_complete = false;
     self.new_frame = false;
-    self.scale = 1;
-    self.alpha = 1;
-    self.image_blend = c_white;
-    self.blend = undefined;
-    self.held_item_render_callback = undefined;
+    self.held_animal_render_callback = undefined;
     self.tool_effect = ToolEffect.None;
     self.render_tool_effect = true;
-    self.perform_outline = false;
-    self.clip_region = [0, 0, 0, 0];
     self.render_hair = true;
+
+    self.perform_outline = undefined;
+    self.perform_outline_alpha = undefined;
+    self.scale = 1;
+    self.tint = c_white;
+    self.alpha = 1.0;
+    self.blend = undefined;
+    self.last_stencil = undefined;
 
     //
     for(var i = 0; i < AnimationSlot.LEN; i++) {
@@ -341,9 +345,9 @@ function PlayerAnimationRuntime() constructor {
     }
 
     //
-    function render_offscreen() {
+    function draw(draw_x, draw_y) {
+        //
         ds_priority_clear(self.priority);
-
         for (var i = 0; i < AnimationSlot.LEN; i++) {
             var slot = self.slots[i];
             var d = slot.base.get_depth();
@@ -354,36 +358,92 @@ function PlayerAnimationRuntime() constructor {
             }
 
             if d != undefined {
-                ds_priority_add(self.priority, i, d);
+                ds_priority_add(self.priority, i, -d);
             }
         }
-
-        var old_surface = surface_get_target();
-        surface_set_target(SurfaceId.PlayerAnimationRuntime);
-
-        var old_view_size = draw_camera_get_view_size();
-        if old_view_size == undefined {
-            old_view_size = [CAMERA.view_width, CAMERA.view_height];
-        }
-        var old_view_pos = draw_camera_get_view_pos();
-
-        draw_camera_set_view_pos(0.0, 0.0);
-        draw_camera_set_view_size(128, 128);
-        draw_clear_color(c_white, 0.0);
-
         var queue_size = ds_priority_size(self.priority);
-        gpu_set_blendmode_ext(bm_one, bm_inv_src_alpha);
+        for (var i = 0; i < queue_size; i++) {
+            self.priority_this_frame[i] = ds_priority_delete_max(self.priority);
+        }
 
+        if self.perform_outline != undefined {
+            var outline_stencil = stencil_increment();
+            gpu_set_stencil_operation(StencilOperation.Replace);
+            gpu_set_stencil_test(cmpfunc_notequal, outline_stencil);
+            gpu_set_depth_test(cmpfunc_always, false);
+
+            //
+            var old_alpha = self.alpha;
+            self.alpha = self.perform_outline_alpha ?? 1;
+            self.draw_each_component(draw_x - 1, draw_y, queue_size);
+            self.draw_each_component(draw_x + 1, draw_y, queue_size);
+            self.draw_each_component(draw_x, draw_y - 1, queue_size);
+            self.draw_each_component(draw_x, draw_y + 1, queue_size);
+            self.alpha = old_alpha;
+
+            //
+            gpu_set_stencil_test(cmpfunc_equal, outline_stencil);
+            draw_sprite_ext(spr_pixel, 0, draw_x - (PAR_SURFACE_SIZE * 0.5), draw_y - (PAR_SURFACE_SIZE * 0.5), PAR_SURFACE_SIZE, PAR_SURFACE_SIZE, 0, self.perform_outline, self.alpha);
+            gpu_set_stencil_operation(StencilOperation.Keep);
+            gpu_set_depth_test(cmpfunc_always);
+        }
+
+        //
+        gpu_set_color_write(false);
+        gpu_set_depth_test(cmpfunc_less);
+        shader_set_uniform("u_AlphaCutoffMode", 1);
+        shader_set_uniform("u_CutOffWithAlpha", 0);
+        self.draw_each_component(draw_x, draw_y, queue_size);
+
+        //
+        gpu_set_color_write(true);
+        gpu_set_depth_test(cmpfunc_lessequal, false);
+
+        self.last_stencil = stencil_increment();
+        gpu_set_stencil_test(cmpfunc_always, self.last_stencil);
+        gpu_set_stencil_operation(StencilOperation.Replace);
+        shader_set_uniform("u_AlphaCutoffMode", 0);
+        array_reverse(self.priority_this_frame);
+        self.draw_each_component(draw_x, draw_y, queue_size, true);
+
+        gpu_set_depth_test(cmpfunc_always);
+        shader_set_uniform("u_CutOffWithAlpha", 1);
+
+        //
+        if self.blend != undefined {
+            gpu_set_stencil_test(cmpfunc_equal, self.last_stencil);
+            gpu_set_blendmode_ext_sepalpha(self.blend.src_mode, self.blend.dest_mode, bm_zero, bm_one);
+
+            draw_sprite_ext(spr_pixel, 0, draw_x - (PAR_SURFACE_SIZE * 0.5), draw_y - (PAR_SURFACE_SIZE * 0.5), PAR_SURFACE_SIZE, PAR_SURFACE_SIZE, 0, self.blend.color, self.blend.alpha);
+            gpu_set_blendmode_ext(bm_src_alpha, bm_inv_src_alpha);
+        }
+
+        gpu_disable_stencil();
+    }
+
+    //
+    function draw_each_component(draw_x, draw_y, queue_size, rev=false) {
+        var x_scale = self.cardinal == Cardinal.West ? -self.scale : self.scale;
+        var y_scale = self.scale;
+        var x_off = sign(x_scale) == 1 ? 0 : PAR_OFFSET * self.scale;
 
         for (var i = 0; i < queue_size; i++) {
-            var slot_id = ds_priority_delete_max(self.priority);
+            var slot_id = self.priority_this_frame[i];
+            if slot_id == undefined {
+                continue;
+            }
             slot = self.slots[slot_id];
+
+            if rev {
+                gpu_set_depth_sub_offset(queue_size - i - 1);
+            } else {
+                gpu_set_depth_sub_offset(i);
+            }
 
             //
             var uses_lut = slot.lut_data != undefined;
-            shader_set("shd_mistria_default");
             if uses_lut {
-                shader_set_texture("u_LutTexture", slot.lut_data.lut_texture);
+                shader_set_texture("u_LutTexture", slot.lut_data.lut_texture, 0, "u_LutTexelSize");
                 gpu_set_extra(UberShaderKind.PaletteSwap, slot.lut_data.uvs[0], slot.lut_data.uvs[1], slot.lut_data.lut_column_idx);
             } else {
                 gpu_reset_extra();
@@ -447,12 +507,12 @@ function PlayerAnimationRuntime() constructor {
                     if attachment_name != undefined {
                         var slot_data = anim_data[attachment_name];
                         if slot_data != undefined && slot_data[self.cardinal] != undefined {
-                            draw_sprite_ext(slot_data[self.cardinal], slot.base.current_frame_index, SURFACE_OFFSET_X, SURFACE_OFFSET_Y, 1, 1, 0, c_white, 1);
+                            draw_sprite_ext(slot_data[self.cardinal], slot.base.current_frame_index, draw_x + x_off, draw_y, x_scale, y_scale, 0, self.tint, self.alpha);
 
                             if slot_id == AnimationSlot.Tool && outline != undefined {
                                 var outline_slot = anim_data[outline];
                                 if outline_slot != undefined && outline_slot[self.cardinal] != undefined {
-                                    draw_sprite_ext(outline_slot[self.cardinal], slot.base.current_frame_index, SURFACE_OFFSET_X, SURFACE_OFFSET_Y, 1, 1, 0, c_white, 1);
+                                    draw_sprite_ext(outline_slot[self.cardinal], slot.base.current_frame_index, draw_x + x_off, draw_y, x_scale, y_scale, 0, self.tint, self.alpha);
                                 }
                             }
 
@@ -471,37 +531,36 @@ function PlayerAnimationRuntime() constructor {
                     var base_offset = left_arm_slot.modifier.current_frame.offset;
                     var diff_offset = left_arm_slot.base.current_frame.offset;
 
-                    var x_offset = slot.modifier.current_frame.offset.x + diff_offset.x - base_offset.x;
+                    var x_offset = x_off + x_scale * (slot.modifier.current_frame.offset.x + diff_offset.x - base_offset.x);
                     var y_offset = slot.modifier.current_frame.offset.y + diff_offset.y - base_offset.y;
 
+                    var flip_item = x_scale;
+
                     //
-                    var flipper = 1;
                     var held_sprite_x_offset = self.held_sprite.x_offset;
 
                     if self.cardinal == Cardinal.West {
-                        //
                         if self.held_sprite.flips == false {
-                            flipper = -1;
+                            flip_item = abs(flip_item);
                         }
-                        held_sprite_x_offset = self.held_sprite.flipped_x_offset;
+                        held_sprite_x_offset = x_scale * self.held_sprite.flipped_x_offset;
                     }
 
-                    if self.held_item_render_callback != undefined {
-                        self.held_item_render_callback(
-                            self.held_sprite.sprite_index,
-                            self.held_sprite.image_index,
-                            x_offset + held_sprite_x_offset + SURFACE_OFFSET_X,
-                            y_offset + self.held_sprite.y_offset + SURFACE_OFFSET_Y,
-                            flipper
+                    if self.held_animal_render_callback != undefined {
+                        self.held_animal_render_callback(
+                            draw_x + x_offset + held_sprite_x_offset,
+                            draw_y + y_offset + self.held_sprite.y_offset,
+                            x_scale,
+                            y_scale,
                         );
                     } else {
                         draw_sprite_ext(
                             self.held_sprite.sprite_index,
                             self.held_sprite.image_index,
-                            x_offset + held_sprite_x_offset + SURFACE_OFFSET_X,
-                            y_offset + self.held_sprite.y_offset + SURFACE_OFFSET_Y,
-                            flipper,
-                            1,
+                            draw_x + x_offset + held_sprite_x_offset,
+                            draw_y + y_offset + self.held_sprite.y_offset,
+                            flip_item,
+                            y_scale,
                             0,
                             c_white,
                             1,
@@ -511,13 +570,13 @@ function PlayerAnimationRuntime() constructor {
                     continue;
                 } else if slot.base.animation_name != undefined && HELD_ITEM_ANIMATIONS[slot.base.animation_name] {
                     //
-                    var flipper = 1;
+                    var flip_item = x_scale;
                     var held_sprite_x_offset = self.held_sprite.x_offset;
 
                     if self.cardinal == Cardinal.West {
                         //
                         if self.held_sprite.flips == false {
-                            flipper = -1;
+                            flip_item = abs(flip_item);
                         }
                         held_sprite_x_offset = self.held_sprite.flipped_x_offset;
                     }
@@ -525,10 +584,10 @@ function PlayerAnimationRuntime() constructor {
                     draw_sprite_ext(
                         self.held_sprite.sprite_index,
                         self.held_sprite.image_index,
-                        slot.base.current_frame.offset.x + held_sprite_x_offset + SURFACE_OFFSET_X,
-                        slot.base.current_frame.offset.y + self.held_sprite.y_offset + SURFACE_OFFSET_Y,
-                        flipper,
-                        1,
+                        draw_x + x_off + x_scale * (slot.base.current_frame.offset.x + held_sprite_x_offset),
+                        draw_y + slot.base.current_frame.offset.y + self.held_sprite.y_offset,
+                        flip_item,
+                        y_scale,
                         0,
                         c_white,
                         1
@@ -537,7 +596,6 @@ function PlayerAnimationRuntime() constructor {
                 }
             }
 
-            //
             var target_frame = undefined;
 
             //
@@ -545,44 +603,14 @@ function PlayerAnimationRuntime() constructor {
                 target_frame = slot.modifier.current_frame.target_frame;
             }
 
-            if
-                slot.asset != undefined
-                && (
-                    self.render_hair
-                    || !matches(slot_id, AnimationSlot.HairMid, AnimationSlot.HairBack)
-                )
+            if slot.asset != undefined
+                && (self.render_hair || !matches(slot_id, AnimationSlot.HairMid, AnimationSlot.HairBack))
             {
-                slot.base.draw(slot.asset, target_frame);
+                slot.base.draw(slot.asset, target_frame, draw_x, draw_y, x_scale, self.tint, self.alpha);
             }
         }
-        shader_reset_to_default();
-
-        //
-        //
-        if self.blend != undefined {
-            gpu_set_blendmode_ext_sepalpha(self.blend.src_mode, self.blend.dest_mode, bm_zero, bm_one);
-
-            draw_sprite_ext(spr_pixel, 0, 0, 0, PAR_SURFACE_SIZE, PAR_SURFACE_SIZE, 0, self.blend.color, self.blend.alpha);
-        }
-
-        gpu_set_blendmode_ext(bm_src_alpha, bm_inv_src_alpha);
-        surface_set_target(old_surface);
-        draw_camera_set_view_size(old_view_size[0], old_view_size[1]);
-        draw_camera_set_view_pos(old_view_pos[0], old_view_pos[1]);
-    }
-
-    function draw(x, y) {
-        //
-        var flipper = self.cardinal == Cardinal.West ? -1 : 1;
-
-        var xoff = 0;
-        if flipper == -1 {
-            xoff = PAR_SURFACE_SIZE;
-        }
-
-        gpu_set_extra(UberShaderKind.PlayerFinal, self.perform_outline, self.perform_outline, self.perform_outline);
-        draw_surface_ext(SurfaceId.PlayerAnimationRuntime, x + xoff - (SURFACE_OFFSET_X * self.scale), y - (SURFACE_OFFSET_Y * self.scale), self.scale * flipper, self.scale, self.image_blend, self.alpha);
         gpu_reset_extra();
+        gpu_set_depth_sub_offset(0);
     }
 }
 
@@ -680,10 +708,17 @@ function PlayerAnimator(slot, end_behavior) constructor {
     }
 
     //
-    function draw(asset, target_frame) {
+    function draw(asset, target_frame, draw_x, draw_y, scale, tint, alpha) {
         target_frame = target_frame == undefined ? self.current_frame.target_frame : target_frame;
 
-        draw_sprite_ext(asset, target_frame, self.current_frame.offset.x + SURFACE_OFFSET_X, self.current_frame.offset.y + SURFACE_OFFSET_Y, 1, 1, 0, c_white, 1);
+        var x_off = 0;
+        if sign(scale) == 1 {
+            x_off = scale * self.current_frame.offset.x;
+        } else {
+            x_off = -scale * (PAR_OFFSET - self.current_frame.offset.x);
+        }
+
+        draw_sprite_ext(asset, target_frame, draw_x + x_off, draw_y + abs(scale) * self.current_frame.offset.y, scale, abs(scale), 0, tint, alpha);
     }
 
     self.slot = slot;

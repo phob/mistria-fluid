@@ -14,7 +14,7 @@ function load_settings(ignore_patch=false) {
         settings.window_x = 1280;
         settings.window_y = 720;
         settings.global_volume = 0;
-        settings.vsync = false;
+        settings.vsync = 0;
         var language = environment_get_variable("TEST_SUITE_LANGUAGE");
         settings.language = language == undefined ? "eng" : language;
 
@@ -44,10 +44,9 @@ function load_settings(ignore_patch=false) {
 }
 
 function get_default_settings() {
-    //
     return {
         bindings: default_input_id_bindings(),
-        language: "eng",
+        language: local_language(),
         sfx_volume: 1,
         msc_volume: 1,
         amb_volume: 1,
@@ -62,7 +61,7 @@ function get_default_settings() {
         gp_cam_move: 1,
         screenshake: true,
         screen_flash: true,
-        vsync: true,
+        vsync: 1,
         show_tile_cursor: true,
         twenty_four_hour_clock: false,
         show_hud_numbers: false,
@@ -86,7 +85,10 @@ function get_default_settings() {
         asymptote: true,
         scrolling_backgrounds: true,
         native_cursor: true,
-        snap_frame_rate: true,
+        snap_frame_rate: false,
+        frame_rate_cap: false,
+        gamma_slider: 0.5,
+        saturation_slider: 0.5,
     };
 }
 
@@ -111,8 +113,8 @@ function default_bindings_for_input_id(input_id, platform_override) {
         platform = platform_override;
     }
 
-    var east_override = platform == os_switch ? "south_face" : "east_face";
-    var south_override = platform == os_switch ? "east_face" : "south_face";
+    var east_override = platform == "switch" ? "south_face" : "east_face";
+    var south_override = platform == "switch" ? "east_face" : "south_face";
 
     switch input_id {
         case InputId.Up: return ["w", "arrow_up", "pad_up", "left_stick_up"];
@@ -237,4 +239,10 @@ function decode_binding(input_id, new_bindings, binding) {
             }
         }
     }
+}
+
+enum Vsync {
+    Adaptive = -1,
+    Off = 0,
+    On = 1,
 }

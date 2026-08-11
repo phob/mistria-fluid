@@ -87,24 +87,6 @@ object_create(
 
                         animal.liminal = true;
                     }
-
-                    //
-                    //
-                    var outdoor_hearts = fiddle_get("ranching/misc/heart_points/go_outside");
-                    if WEATHER.is_inclement() {
-                        outdoor_hearts *= -1;
-                    }  else {
-                        //
-                        ARI.gain_xp(Skill.Ranching, ANIMAL_XP.go_outside);
-                    }
-
-                    if animal.has_been_outside == false {
-                        animal.add_heart_points(outdoor_hearts);
-                    }
-
-                    if WEATHER.is_inclement() == false {
-                        animal.has_been_outside = true;
-                    }
                 }
 
                 var c = new_world_chain(self.id, CURRENT_LOCATION_ID)
@@ -186,6 +168,19 @@ object_create(
                     }
 
                     animal.instance.bark_signal = bark_signal;
+
+                    //
+                    if animal.instance != undefined
+                        && instance_exists(animal.instance)
+                        && animal.instance.fsm.current_state_id() == AnimalState.UsingToy
+                    {
+                        if animal.instance.fsm.current_state().toy != undefined {
+                            animal.instance.y = animal.instance.fsm.current_state().toy.renderer.y;
+                            animal.instance.object_id_to_ignore = animal.instance.fsm.current_state().toy.object_id;
+                        }
+
+                        animal.instance.fsm.change_state(AnimalState.Wander);
+                    }
                 }
 
                 //

@@ -38,6 +38,10 @@ var setup_obj = object_create(
             HUD_TARGET = undefined;
             checksum_set_save_is_tampered(undefined);
 
+            ACHIEVEMENT_CACHE = array_create_ext(Achievement.LEN, function(i) {
+                return steam_achievement_is_unlocked(achievement_to_string(i));
+            });
+
             if FROM_GAME {
                 TAXI.location_current = undefined;
 
@@ -70,6 +74,7 @@ var setup_obj = object_create(
                 }
                 initialize_fiddle_movement_speed();
 
+                var generated_settings_file = !file_exists(SETTINGS_PATH);
                 SETTINGS = load_settings();
 
                 REQUIREMENT_ALIASES = load_requirement_aliases();
@@ -178,8 +183,10 @@ var setup_obj = object_create(
                 SPELLS = load_spells();
                 QUEST_TAG_REGISTRATIONS = load_quest_tag_registrations();
                 QUESTS = load_quests();
+                QUESTS_BY_CATEGORY = gather_quests_by_category();
                 CROWN_QUESTS = load_crown_quests();
                 TALI_CHALLENGES = load_tali_challenges();
+                STILLWELL_CHALLENGES = load_stillwell_challenges();
                 LETTERS = load_letters();
                 RENOWN = load_renown();
                 FESTIVALS = load_festivals();
@@ -191,6 +198,8 @@ var setup_obj = object_create(
                 NPC_PROTOTYPES = load_npc_prototypes();
                 CAMEO_PROTOTYPES = load_cameo_prototypes();
                 ACHIEVEMENTS = parse_achievements();
+                ACHIEVEMENTS_USING_REQUIREMENT = gather_achievement_requirement_usage();
+                CHILDREN = load_children_prototypes();
                 create_fiddle_parsers();
                 initialize_xp_values();
                 preload_button_sprite_cache();
@@ -199,6 +208,8 @@ var setup_obj = object_create(
                 ELIGIBLE_DATE_STATUSES = fiddle_get("misc/statuses_eligible_for_dates");
                 DATES = load_dates();
                 MAP_HUBS = load_map_hubs();
+                SONGS = load_songs();
+                BELL_SOUNDS = load_bell_sounds();
 
                 //
                 if DEBUG_ASSERTIONS {
@@ -305,6 +316,13 @@ var setup_obj = object_create(
                 DISPLAY_INVALID_SAVE_POPUP = 2;
             }
 
+            if generated_settings_file && local_language() != "eng" {
+                //
+                //
+                //
+                DISPLAY_BETA_LANGUAGE_WARNING = true;
+            }
+
             //
             var menu = ANCHOR.spawn_menu(Menu.Title);
             menu.start();
@@ -325,13 +343,13 @@ var setup_obj = object_create(
                             ? new LocationPosition(LocationId.AdelinesOffice, Vec2Zero())
                             : new LocationPosition(
                                 LocationId.PlayerHome,
-                                ALL_UNLOCKS ? Vec2(102, 125) : Vec2(122, 125),
+                                ALL_UNLOCKS ? Vec2(102, 125) : Vec2(120, 125),
                             );
                         break;
                     case LoadStateId.Load:
                         is_manual_save = load_state.is_manual_save;
                         var player_data = load_state.loader.load_file("player");
-                        if player_data[$ "position"] != undefined {
+                        if player_data != undefined && player_data[$ "position"] != undefined {
                             //
                             location_position = new LocationPosition(
                                 string_to_location_id(player_data.home_location),
@@ -414,6 +432,7 @@ var setup_obj = object_create(
             }
 
             self.manual_crash_timer = 0;
+            draw_post_process(DISPLAY.on_draw_post_process);
             draw_to_screen(DISPLAY.on_draw_gui);
 
             if FROM_GAME == false && TEST_SUITE {

@@ -1,5 +1,5 @@
 //
-function end_day(spawn_eod_menu=true) {
+function end_day(spawn_eod_menu=true, held_point_of_interest=undefined) {
     trace("Ending {Season} {}...", CALENDAR.season(), CALENDAR.day() + 1);
 
     //
@@ -92,10 +92,11 @@ function end_day(spawn_eod_menu=true) {
     if spawn_eod_menu {
         new_chain().append(LinkId.Await, function() {
             return !MIST.running;
-        }).append(LinkId.Function, function() {
+        }).append(LinkId.Function, function(held_point_of_interest) {
             var menu = ANCHOR.spawn_menu(Menu.Eod);
+            menu.held_point_of_interest = held_point_of_interest;
             menu.init();
-        });
+        }, [held_point_of_interest]);
     }
 
     Game.animal_eat_exit = false;

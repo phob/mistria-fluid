@@ -31,6 +31,7 @@ function create_breakable_prototype(object_id, fiddle_obj) {
                 ore_count: chest[$ "ore_count"] ?? 0,
                 gem_chance: chest[$ "gem_chance"] ?? 0,
                 mana_chance: chest[$ "mana_chance"] ?? 0,
+                extras_chance: chest.extras_chance,
                 essence_stone: try_string_to_item_id(chest[$ "essence_stone"]),
             }
             //
@@ -146,12 +147,34 @@ function create_breakable_renderer(node) {
                                 .append(LinkId.Timer, 10);
                         }
 
+                        var biome = DUNGEON.biomes[current_dungeon_biome() ?? DungeonBiome.Upper];
+
+                        //
+                        if chance_percent(node.prototype.chest.extras_chance) {
+                            var item_id = undefined;
+                            repeat array_length(biome.cosmetics) {
+                                var maybe = biome.cosmetics[irandom_range(0, array_length(biome.cosmetics) - 1)];
+                                if ari_has_cosmetic_anywhere(maybe) == false {
+                                    item_id = maybe;
+                                    break;
+                                }
+                            }
+                            if item_id != undefined {
+                                var li = new LiveItem(ItemId.Cosmetic);
+                                li.cosmetic = item_id;
+                                drop_chain
+                                    .append(LinkId.Function, drop_item, [li, node.renderer.x, node.renderer.y, -4])
+                                    .append(LinkId.Timer, 30);
+                            }
+                        }
+
+                        //
                         var data = get_treasure_from_distribution(node.top_left_x, node.top_left_y);
                         if data != undefined {
                             if data[1] {
                                 drop_chain
-                                    .append(LinkId.Timer, 10)
-                                    .append(LinkId.Function, item_from_critical_poof, [node.renderer.x, node.renderer.y + 4, data[0]]);
+                                    .append(LinkId.Function, item_from_critical_poof, [node.renderer.x, node.renderer.y + 4, data[0]])
+                                    .append(LinkId.Timer, 30);
                             } else {
                                 if data[0].item_id == ItemId.RecipeScroll || data[0].item_id == ItemId.CraftingScroll {
                                     ARI.recipes_created[data[0].inner_item] = true;
@@ -159,6 +182,40 @@ function create_breakable_renderer(node) {
                                 drop_chain
                                     .append(LinkId.Function, drop_item, [data[0], node.renderer.x, node.renderer.y, -4])
                                     .append(LinkId.Timer, 10);
+                            }
+                        }
+
+                        //
+                        if ARI.perk_active(Perk.TasteMaker) && chance_percent(node.prototype.chest.extras_chance)  {
+                            var item_id = undefined;
+                            repeat array_length(biome.taste_maker) {
+                                var maybe = biome.taste_maker[irandom_range(0, array_length(biome.taste_maker) - 1)];
+                                if ari_has_recipe_anywhere(maybe) == false {
+                                    item_id = maybe;
+                                    break;
+                                }
+                            }
+                            if item_id != undefined {
+                                drop_chain
+                                    .append(LinkId.Function, item_from_critical_poof, [node.renderer.x, node.renderer.y + 4, new LiveItem(ItemId.RecipeScroll, item_id)])
+                                    .append(LinkId.Timer, 30);
+                            }
+                        }
+
+                        //
+                        if ARI.perk_active(Perk.Reclaimer) && chance_percent(node.prototype.chest.extras_chance) {
+                            var item_id = undefined;
+                            repeat array_length(biome.furniture) {
+                                var maybe = biome.furniture[irandom_range(0, array_length(biome.furniture) - 1)];
+                                if ari_has_recipe_anywhere(maybe) == false {
+                                    item_id = maybe;
+                                    break;
+                                }
+                            }
+                            if item_id != undefined {
+                                drop_chain
+                                    .append(LinkId.Function, item_from_critical_poof, [node.renderer.x, node.renderer.y + 4, new LiveItem(ItemId.CraftingScroll, item_id)])
+                                    .append(LinkId.Timer, 30);
                             }
                         }
 
@@ -238,30 +295,11 @@ function create_treasure_distributions(biome) {
     );
 
     //
-    for (var i = 0; i < array_length(biome.cosmetics); i++) {
-        spawn_distribution_per_biome.add_candidate(
-            [AnnoyingItem.Cosmetic, biome.cosmetics[i]],
-            new SpawnConditions().add(5)
-                .require(Condition.NoCosmetic(biome.cosmetics[i])),
-        );
-    }
-
-    //
     for (var i = 0; i < array_length(biome.dungeon_delicacies); i++) {
         spawn_distribution_per_biome.add_candidate(
             biome.dungeon_delicacies[i],
             new SpawnConditions().add(5)
                 .require(Condition.HasPerk(Perk.DungeonDelicacies)),
-        );
-    }
-
-    //
-    for (var i = 0; i < array_length(biome.taste_maker); i++) {
-        spawn_distribution_per_biome.add_candidate(
-            [AnnoyingItem.RecipeScroll, biome.taste_maker[i]],
-            new SpawnConditions().add(5)
-                .require(Condition.NoRecipe(biome.taste_maker[i]))
-                .require(Condition.HasPerk(Perk.TasteMaker)),
         );
     }
 
@@ -281,12 +319,6 @@ function create_treasure_distributions(biome) {
                 .require(Condition.HasPerk(Perk.Reclaimer)),
         );
 
-        spawn_distribution_per_biome.add_candidate(
-            [AnnoyingItem.CraftingScroll, biome.furniture[i]],
-            new SpawnConditions().add(5)
-                .require(Condition.NoRecipe(biome.furniture[i]))
-                .require(Condition.HasPerk(Perk.Reclaimer))
-        );
     }
 
     return spawn_distribution_per_biome;

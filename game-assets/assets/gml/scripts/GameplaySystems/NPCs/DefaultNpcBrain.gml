@@ -5,88 +5,6 @@ function DefaultNpcBrain() {
             //
             Run(function(bb) {
                 var me = bb.get("me");
-
-                if me.is_roommate() {
-                    //
-                    var instance = bb.get("instance");
-                    if instance != undefined && instance.kissing {
-                        return Status.Err;
-                    }
-
-                    //
-                    var state = bb.get("roommate_state");
-                    var target_state = undefined;
-                    if CLOCK.time < ROOMMATE_TIMES.wake_up {
-                        target_state = RoommateState.Sleep;
-                    } else if CLOCK.time < ROOMMATE_TIMES.go_out {
-                        target_state = RoommateState.Routine;
-                    } else if CLOCK.time < ROOMMATE_TIMES.come_home {
-                        //
-                        target_state = me.location_position.location_id != CURRENT_LOCATION_ID
-                            ? RoommateState.Schedule
-                            : state;
-                    } else if CLOCK.time < ROOMMATE_TIMES.sleep {
-                        //
-                        target_state = me.location_position.location_id != CURRENT_LOCATION_ID
-                            ? RoommateState.Routine
-                            : state;
-                    } else {
-                        target_state = RoommateState.Sleep;
-                    }
-
-                    //
-                    if target_state != state {
-                        bb.insert("roommate_state", target_state);
-                        switch target_state {
-                            case RoommateState.Sleep:
-                                //
-                                //
-                                //
-                                break;
-                            case RoommateState.Routine:
-                                me.activity_handler.set_routine(me.prototype.roommate_routine);
-                                break;
-                            case RoommateState.Schedule:
-                                var tp = T2R.schedule_current_destination(me.id);
-                                me.location_position = trellis_point_location_position(tp);
-
-                                //
-                                var start_time = hours(6);
-                                while true {
-                                    var output = T2R.schedule_execute(me.id, CALENDAR.unified_time());
-                                    if output == undefined {
-                                        break;
-                                    }
-                                    start_time = output.time;
-                                }
-
-                                //
-                                var tp = T2R.schedule_current_destination(me.id);
-                                var target = trellis_point_location_position(tp);
-                                var itinerary = PATHFINDING.calculate_map_path(me.location_position, target);
-                                simulate_pathfind(me.id, start_time, CLOCK.time, itinerary);
-                                start_schedule_pathfind(bb, target);
-
-                                //
-                                //
-                                bb.insert("roommate_state", target_state);
-
-
-                                //
-                                //
-                                //
-                                me.activity_handler.reset();
-
-                                return Status.Err;
-                            default: impossible("Unexpected RoommateState: {RoommateState}", target_state)
-                        }
-                    }
-
-                    if target_state != RoommateState.Schedule {
-                        return Status.Err;
-                    }
-                }
-
                 var output = T2R.schedule_execute(me.id, CALENDAR.unified_time());
                 if output == undefined {
                     if T2R.schedule_current_action_has_arrived(me.id) {
@@ -172,11 +90,4 @@ function start_schedule_pathfind(bb, next_location) {
         }
         me.brain_dead = true;
     });
-}
-
-//
-enum RoommateState {
-    Sleep,
-    Routine,
-    Schedule
 }

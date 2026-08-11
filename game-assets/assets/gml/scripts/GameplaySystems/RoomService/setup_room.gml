@@ -50,7 +50,18 @@ function setup_room() {
             "Tiles_bridge_fixed",
             "Tiles_bridge_destroyed",
             "Tiles_Collision",
+            "Tiles_Collision_Zero",
+            "Tiles_Collision_One",
+            "Tiles_Collision_Two",
+            "Tiles_Collision_Three",
+            "Tiles_Collision_Four",
+            "Tiles_Collision_Player_House_Adobe",
+            "Tiles_Collision_Player_House_Leafy_Cottage",
+            "Tiles_Collision_Player_House_Leafy_Timbered",
+            "Tiles_Collision_Player_House_Leafy_Victorian",
+            "Tiles_Collision_Player_House_Upgrade",
             "Tiles_Rules",
+            "Tiles_Rules_Post_Init",
             "Tiles_Forces",
             "Tiles_Critter_Points",
             "Pathfinding",
@@ -71,7 +82,29 @@ function setup_room() {
             "Tiles_Collision_Saturday_Market",
             "Level_0_FloorSprites_Saturday_Market",
             "Tiles_Fish_Size",
-            "Tiles_WindowBacking"
+            "Tiles_WindowBacking",
+            "Level_0_Assets_Wedding",
+            "Level_0_FloorSprites_Wedding",
+            "Level_0_Assets_Wedding_Flowers_blue",
+            "Level_0_Assets_Wedding_Flowers_ebony",
+            "Level_0_Assets_Wedding_Flowers_multicolor",
+            "Level_0_Assets_Wedding_Flowers_pink",
+            "Level_0_Assets_Wedding_Flowers_purple",
+            "Level_0_Assets_Wedding_Flowers_red",
+            "Level_0_Assets_Wedding_Flowers_white",
+            "Level_0_Assets_Wedding_Flowers_yellow",
+            "Level_0_Assets_Wedding_Cake_chocolate",
+            "Level_0_Assets_Wedding_Cake_golden_cheesecake",
+            "Level_0_Assets_Wedding_Cake_lemon",
+            "Level_0_Assets_Wedding_Cake_mont_blanc",
+            "Level_0_Assets_Wedding_Cake_moon_fruit",
+            "Level_0_Assets_Wedding_Cake_pumpkin_pie",
+            "Level_0_Assets_Wedding_Cake_rose",
+            "Level_0_Assets_Wedding_Cake_rose_hip",
+            "Level_0_Assets_Wedding_Cake_spellfruit",
+            "Level_0_Assets_Wedding_Cake_triple_chocolate",
+            "Level_0_Assets_Wedding_Cake_vanilla",
+            "Level_0_Assets_Wedding_Cake_wildberry",
         ]);
 
         for (var i = 0; i < NpcId.LEN; i++) {
@@ -250,26 +283,69 @@ function setup_room() {
     }
 
     //
+    //
     if CURRENT_LOCATION_ID == LocationId.Farm {
-        if DECOR.size_upgrade != HomeUpgrade.Small {
-            array_push(removals, "Level_0_Assets_Player_House");
-            array_push(removals, "Level_0_Windows");
+        switch CALENDAR.season() {
+            case Season.Spring:
+                background_set_color(make_color_rgb(80, 207, 143), 1.0);
+                break;
+            case Season.Summer:
+                background_set_color(make_color_rgb(109, 194, 95), 1.0);
+                break;
+            case Season.Winter:
+                background_set_color(make_color_rgb(240, 252, 255), 1.0);
+                break;
+            case Season.Fall:
+                background_set_color(make_color_rgb(217, 79, 100), 1.0);
+                break;
         }
-        if DECOR.size_upgrade != HomeUpgrade.Large {
-            array_push(removals, "Level_0_Assets_Player_House_Upgrade_1");
-            array_push(removals, "Level_0_Windows_Player_House_Upgrade_1");
+
+        for (var i = 0; i < HomeVariant.LEN; i++) {
+            var layers = layers_for_home_variant(i);
+
+            if DECOR.variant != i {
+                for (var j = 0; j < array_length(layers); j++) {
+                    var nom_deletion = layers[j];
+                    if nom_deletion != home_variant_window_layer_tag(DECOR.variant)
+                        && array_contains(removals, nom_deletion) == false
+                    {
+                        array_push(removals, layers[j]);
+                    }
+                }
+                continue;
+            }
+
+            if i == HomeVariant.StoneCottage {
+                if DECOR.size_upgrade != HomeUpgrade.Small {
+                    array_push(removals, "Level_0_Assets_Player_House");
+                    array_push(removals, "Level_0_Windows");
+                }
+                if DECOR.size_upgrade != HomeUpgrade.Large {
+                    array_push(removals, "Level_0_Assets_Player_House_Upgrade_1");
+                    array_push(removals, "Level_0_Windows_Player_House_Upgrade_1");
+                }
+                if DECOR.size_upgrade != HomeUpgrade.LargeWest {
+                    array_push(removals, "Level_0_Assets_Player_House_Upgrade_2");
+                    array_push(removals, "Level_0_Windows_Player_House_Upgrade_2");
+                }
+                if DECOR.size_upgrade != HomeUpgrade.LargeWestEast || DECOR.upper_floor {
+                    array_push(removals, "Level_0_Assets_Player_House_Upgrade_3");
+                    array_push(removals, "Level_0_Windows_Player_House_Upgrade_3");
+                }
+                if !DECOR.upper_floor {
+                    array_push(removals, "Level_0_Assets_Player_House_Upgrade_4");
+                    array_push(removals, "Level_0_Windows_Player_House_Upgrade_4");
+                }
+            }
         }
-        if DECOR.size_upgrade != HomeUpgrade.LargeWest {
-            array_push(removals, "Level_0_Assets_Player_House_Upgrade_2");
-            array_push(removals, "Level_0_Windows_Player_House_Upgrade_2");
-        }
-        if DECOR.size_upgrade != HomeUpgrade.LargeWestEast || DECOR.upper_floor {
-            array_push(removals, "Level_0_Assets_Player_House_Upgrade_3");
-            array_push(removals, "Level_0_Windows_Player_House_Upgrade_3");
-        }
-        if !DECOR.upper_floor {
-            array_push(removals, "Level_0_Assets_Player_House_Upgrade_4");
-            array_push(removals, "Level_0_Windows_Player_House_Upgrade_4");
+
+        if DECOR.variant != undefined {
+            try {
+                var output = array_pos(removals, home_variant_window_layer_tag(DECOR.variant));
+                array_delete(removals, output);
+            } catch(_) {
+                //
+            }
         }
     }
 
@@ -307,21 +383,21 @@ function setup_room() {
             var shadow_map_id = strict_layer_tilemap_get_id(layers[i]);
 
             var on_level_zero = string_pos("Level_0_Shadows", layer_name) != 0;
-            var write_z = layer_name == "Level_2_Shadows";
-            instance_create_depth(0, 0, layer_get_depth(layers[i]), obj_shadow_level, {
+            var shadow_level = instance_create_depth(0, 0, layer_get_depth(layers[i]), obj_shadow_level, {
                 target_shadow_grid: on_level_zero ? SHADOW_GRID : undefined,
                 shadow_maps: [shadow_map_id],
                 shadow_map_offsets: [
                     Vec2(tilemap_get_x(shadow_map_id), tilemap_get_y(shadow_map_id)),
                 ],
                 render_outlines: on_level_zero,
-                image_alpha: write_z ? 0.5 : 1.0,
-                write_z,
+                image_alpha: layer_name == "Level_2_Shadows" ? 0.5 : 1.0,
             });
+            if DEBUG_TOOLS {
+                shadow_level.name = layer_name;
+            }
 
             should_be_removed = true;
         }
-
 
         //
         if INVISIBLE_LAYERS.contains(layer_name) || should_be_removed {
@@ -399,6 +475,72 @@ function setup_room() {
             }
         }
     }
+
+    if MIST.is_running() && MIST.active_cutscene.id == "wedding" {
+        var flower_fact = T2R.read("wedding_flower_color") ?? "white";
+        var flower_lay = format("Level_0_Assets_Wedding_Flowers_{}", flower_fact);
+
+        if CURRENT_LOCATION_ID == LocationId.Inn {
+            var food_fact = T2R.read("wedding_dinner_dish");
+            var food_item = try_string_to_item_id(food_fact);
+            if food_item == undefined {
+                warn("Invalid food item: {}", food_fact);
+                food_item = ItemId.HarvestPlate;
+            }
+            var food_sprite = ITEM_PROTOTYPES[food_item].icon_sprite;
+
+            process_asset_layer(layer_get_id("Level_0_Assets_Wedding"));
+
+            with obj_assetobject {
+                if self.sprite_index == spr_npc_food_empty_plate_eat_south {
+                    instance_create_layer(
+                        self.x,
+                        self.y,
+                        "Instances",
+                        obj_assetobject,
+                        {
+                            sprite_index: food_sprite,
+                            z: -8,
+                        }
+                    );
+
+                    if !ITEM_PROTOTYPES[food_item].tags.contains("inn_plate") {
+                        instance_destroy();
+                    }
+                }
+            }
+
+            if !layer_exists(flower_lay) {
+                warn("Invalid flower choice: {}", flower_fact);
+                flower_lay = "Level_0_Assets_Wedding_Flowers_white";
+            }
+            process_asset_layer(layer_get_id(flower_lay));
+
+            var cake_fact = T2R.read("wedding_cake_flavor") ?? "vanilla";
+            var lay = format("Level_0_Assets_Wedding_Cake_{}", cake_fact);
+            if !layer_exists(lay) {
+                warn("Invalid cake choice: {}", cake_fact);
+                lay = "Level_0_Assets_Wedding_Cake_vanilla";
+            }
+            process_asset_layer(layer_get_id(lay));
+        } else if CURRENT_LOCATION_ID == LocationId.Town {
+            process_asset_layer(layer_get_id("Level_0_Assets_Wedding"));
+            process_asset_layer(layer_get_id("Level_0_FloorSprites_Wedding"), true);
+
+            if !layer_exists(flower_lay) {
+                warn("Invalid flower choice: {}", flower_fact);
+                flower_lay = "Level_0_Assets_Wedding_Flowers_white";
+            }
+            process_asset_layer(layer_get_id(flower_lay));
+        }
+    }
+
+    if CURRENT_LOCATION_ID == LocationId.HaydensFarm && QUEST_LOG.active.contains_key("find_the_weathervane") {
+        toggle_asset_visibility("spr_haydens_farm_barn_weathervane_spring", false);
+    }
+
+    festival_build_layers();
+    SATURDAY_MARKET.on_room_start();
 }
 
 //

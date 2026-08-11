@@ -10,7 +10,7 @@ object_create(
             depth = get_instance_depth(y);
             self.par = new PlayerAnimationRuntime();
             self.par.cardinal = Cardinal.South;
-            ARI.animation_assets().apply_to_par(self.par);
+            build_obj_ari_par_from(ARI.animation_assets());
             FISHING.subscribe(self.id);
             var player_data = fiddle_get("player");
 
@@ -220,7 +220,7 @@ object_create(
                 if game_paused() {
                     return false;
                 }
-                
+
                 if self.ui_journal_request || INPUT.take_press(InputId.OpenJournal) {
                     self.ui_journal_request = false;
                     var menu = ANCHOR.spawn_menu(Menu.Journal);
@@ -403,6 +403,17 @@ object_create(
             }
 
             function collision_check(_vec2) {
+                if _vec2.is_zero() || (DEBUG_TOOLS && self.no_clip) {
+                    var ni = GRID.try_node_index_for_room_position(x, y);
+                    if ni != undefined && GRID.node_object_id[ni] != undefined {
+                        GRID.node_parent[ni].renderer.collide(false, self.cardinal);
+                    }
+
+                    return;
+                }
+
+                static SLIPPERY_COEFFICIENT = fiddle_get("misc/movement_speeds/slip_size");
+
                 var collision_f = function(xx, yy) {
                     if self.overlapping_monster == false {
                         var o = overlap_point(xx, yy, par_monster);
@@ -427,15 +438,28 @@ object_create(
                     var n = GRID.try_node_index_for_room_position(xx, yy);
                     return (n == undefined || GRID.node_collideable[n]);
                 }
-                static SLIPPERY_COEFFICIENT = 4.5;
 
-                if _vec2.is_zero() || (DEBUG_TOOLS && self.no_clip) {
-                    var ni = GRID.try_node_index_for_room_position(x, y);
-                    if ni != undefined && GRID.node_object_id[ni] != undefined {
-                        GRID.node_parent[ni].renderer.collide(false, self.cardinal);
+                var step_free = function(dx, dy, collision_f) {
+                    if dy != 0 {
+                        var leading_y = (dy > 0) ? self.bbox_bottom : self.bbox_top;
+
+                        if collision_f(self.bbox_left + dx, leading_y + dy)
+                            || collision_f(self.bbox_right + dx, leading_y + dy)
+                        {
+                            return false;
+                        }
+                    }
+                    if dx != 0 {
+                        var leading_x = (dx > 0) ? self.bbox_right : self.bbox_left;
+
+                        if collision_f(leading_x + dx, self.bbox_top + dy)
+                            || collision_f(leading_x + dx, self.bbox_bottom + dy)
+                        {
+                            return false;
+                        }
                     }
 
-                    return;
+                    return true;
                 }
 
                 //
@@ -446,20 +470,11 @@ object_create(
                 var initial_move_x = move_x;
                 var initial_move_y = move_y;
 
-                var rx = round(x);
-                var ry = round(y);
-
-                var bbr = round(bbox_right);
-                var bbt = round(bbox_top);
-                var bbl = round(bbox_left);
-                var bbb = round(bbox_bottom);
-
                 var bbox_bounds = [
-                    [bbl, bbt],
-                    [bbl, bbb],
-                    [bbr, bbt],
-                    [bbr, bbb],
-                    [rx, ry],
+                    [bbox_left,  bbox_top,    -1, -1],
+                    [bbox_left,  bbox_bottom, -1,  1],
+                    [bbox_right, bbox_top,     1, -1],
+                    [bbox_right, bbox_bottom,  1,  1],
                 ];
 
                 //
@@ -472,75 +487,100 @@ object_create(
                 self.overlapping_monster = overlap_instance_any(x, y, par_monster);
                 self.overlapping_npc = overlap_instance_any(x, y, par_NPC);
 
-                //
-                for (var i = 0; i < 5; i++) {
-                    _xx    = bbox_bounds[i][0];
-                    _yy    = bbox_bounds[i][1];
+                var slipped = false;
+                if initial_move_y == 0 && move_x != 0 {
+                    var leading_x = (move_x > 0) ? bbox_right : bbox_left;
+                    var target_x = leading_x + move_x;
 
-                    if move_x != 0 {
+                    if collision_f(target_x, bbox_top) || collision_f(target_x, bbox_bottom) {
+                        var slip_y = 0;
+
+                        for (var d = 0; d <= SLIPPERY_COEFFICIENT; d++) {
+                            if collision_f(target_x, bbox_bottom + d) == false {
+                                slip_y = 1;
+                                break;
+                            }
+                            if collision_f(target_x, bbox_top - d) == false {
+                                slip_y = -1;
+                                break;
+                            }
+                        }
+
+                        if slip_y != 0 && step_free(0, slip_y, collision_f) {
+                            move_y += slip_y;
+                            move_x  = 0;
+                            slipped = true;
+                        }
+                    }
+                }
+
+                if slipped == false && initial_move_x == 0 && move_y != 0 {
+                    var leading_y = (move_y > 0) ? bbox_bottom : bbox_top;
+                    var target_y = leading_y + move_y;
+
+                    if collision_f(bbox_left, target_y) || collision_f(bbox_right, target_y) {
+                        var slip_x = 0;
+
+                        for (var d = 0; d <= SLIPPERY_COEFFICIENT; d++) {
+                            if collision_f(bbox_right + d, target_y) == false {
+                                slip_x = 1;
+                                break;
+                            }
+                            if collision_f(bbox_left - d, target_y) == false {
+                                slip_x = -1;
+                                break;
+                            }
+                        }
+
+                        if slip_x != 0 && step_free(slip_x, 0, collision_f) {
+                            move_x += slip_x;
+                            move_y  = 0;
+                            slipped = true;
+                        }
+                    }
+                }
+
+                if slipped == false {
+                    //
+                    for (var i = 0; i < 4; i++) {
+                        //
+                        if bbox_bounds[i][2] != sign_move_x || move_x == 0 {
+                            continue;
+                        }
+
+                        _xx = bbox_bounds[i][0];
+                        _yy = bbox_bounds[i][1];
+
                         repeat input_x {
                             if collision_f(_xx + move_x, _yy) {
-                                //
-                                if move_y == 0 {
-                                    if collision_f(_xx + move_x, ry + SLIPPERY_COEFFICIENT) == false
-                                        && collision_f(_xx, ry + SLIPPERY_COEFFICIENT) == false
-                                    {
-                                        move_y += 1;
-                                        move_x = 0;
-                                        break;
-                                    } else if collision_f(_xx + move_x, ry - SLIPPERY_COEFFICIENT) == false
-                                        && collision_f(_xx, ry - SLIPPERY_COEFFICIENT) == false
-                                    {
-                                        move_y -= 1;
-                                        move_x = 0;
-                                        break;
-                                    }
-                                }
-
                                 move_x -= sign_move_x;
                                 if abs(move_x) < 1 {
                                     move_x = 0;
                                 }
                                 if move_x == 0 {
-                                     input_x = 0;
+                                    break;
                                 }
                             }
                         }
                     }
-                }
 
-                //
-                for (var i = 0; i < 5; i++) {
-                    _xx    = bbox_bounds[i][0];
-                    _yy    = bbox_bounds[i][1];
+                    //
+                    for (var i = 0; i < 4; i++) {
+                        if bbox_bounds[i][3] != sign_move_y || move_y == 0 {
+                            continue;
+                        }
 
-                    if move_y != 0 {
+                        _xx = bbox_bounds[i][0];
+                        _yy = bbox_bounds[i][1];
+
                         repeat input_y {
                             if collision_f(_xx + move_x, _yy + move_y) {
-                                //
-                                if move_x == 0 {
-                                    if collision_f(rx + SLIPPERY_COEFFICIENT, _yy + move_y) == false
-                                        && collision_f(rx + SLIPPERY_COEFFICIENT, _yy) == false
-                                    {
-                                        move_x += 1;
-                                        move_y = 0;
-                                        break;
-                                    } else if collision_f(rx - SLIPPERY_COEFFICIENT, _yy + move_y) == false
-                                        && collision_f(rx - SLIPPERY_COEFFICIENT, _yy) == false
-                                    {
-                                        move_x -= 1;
-                                        move_y = 0;
-                                        break;
-                                    }
-                                }
-
-                                //
                                 move_y -= sign_move_y;
                                 if abs(move_y) < 1 {
                                     move_y = 0;
                                 }
                                 if move_y == 0 {
-                                    input_y = 0;
+                                    break;
                                 }
                             }
                         }
@@ -561,6 +601,7 @@ object_create(
                     _vec2.y = move_y;
                 }
             }
+
 
             //
             function can_land_at_position(xx, yy) {
@@ -660,9 +701,10 @@ object_create(
                                 } else if dir == undefined {
                                     return false;
                                 } else {
-                                    var level = tile_forces_to_level(GRID.node_force[ni]) == 0;
+                                    var level = tile_forces_to_level(GRID.node_force[ni]);
                                     var force = tile_forces_to_dir(GRID.node_force[ni]);
-                                    return level && force != 0;
+                                    return level == 0
+                                        && abs(force - dir) <= 90;
                                 }
                             }
                         } else {
@@ -1156,12 +1198,8 @@ object_create(
             }
 
             function change_preset(new_preset_index) {
-                var current_preset = ARI.animation_assets();
-                for (var i = 0; i < current_preset.assets.count(); i++) {
-                    self.par.remove_asset(current_preset.assets.get(i).name);
-                }
+                build_obj_ari_par_from(ARI.presets.get(new_preset_index));
                 ARI.preset_index_selected = new_preset_index;
-                ARI.animation_assets().apply_to_par(self.par);
             }
 
             //
@@ -1342,7 +1380,12 @@ object_create(
                 self.par.blend = undefined;
                 ARI.fire_breath_time = 0;
 
-                ARI.end_of_day_status = EndOfDayStatus.Fainted;
+                ARI.end_of_day_status = ARI.has_protection_scroll
+                    ? EndOfDayStatus.Protected
+                    : EndOfDayStatus.Fainted;
+
+                T2R.write("has_ever_fainted", true);
+                refresh_achievements([Requirement.WorldFactIs]);
 
                 self.depth = get_instance_depth(self.y);
                 self.fsm.change_state(PlayerState.AnimateAndThen);
@@ -1364,12 +1407,11 @@ object_create(
 
                 self.fsm.blackboard.set("hold_animation_forever", true);
 
-                if is_dungeon_room(room()) {
-                    game_stats_end_mines_run("fainted");
+                if DUNGEON_RUNNER != undefined {
+                    DUNGEON_RUNNER.exit_mines_stats_condition = "fainted";
                 }
 
                 return true;
-
             }
 
             function should_die() {
@@ -1387,10 +1429,12 @@ object_create(
                 }
 
                 game_stats_increment(GAME_STATS, "deaths");
-                ARI.end_of_day_status = EndOfDayStatus.Died;
+                ARI.end_of_day_status = ARI.has_protection_scroll
+                    ? EndOfDayStatus.Protected
+                    : EndOfDayStatus.Died;
 
-                if is_dungeon_room(room()) {
-                    game_stats_end_mines_run("dead");
+                if DUNGEON_RUNNER != undefined {
+                    DUNGEON_RUNNER.exit_mines_stats_condition = "dead";
                 }
 
                 self.fsm.change_state(PlayerState.AnimateAndThen);
@@ -1411,7 +1455,11 @@ object_create(
                     }
 
                     SCREEN_FADER.fade_out(FADE_SPEED_CUTSCENE, function() {
-                        MIST.run_scene("dying");
+                        if ARI.has_protection_scroll {
+                            pass_out();
+                        } else {
+                            MIST.run_scene("dying");
+                        }
                     });
                 });
 
@@ -1421,7 +1469,7 @@ object_create(
             function initialize_for_cutscene() {
                 self.par.unset_all_modifiers();
                 self.par.remove_held_sprite();
-                self.par.held_item_render_callback = undefined;
+                self.par.held_animal_render_callback = undefined;
                 self.meddler.release_reservations();
                 self.meddler = new PathfindingMeddler(PathfindingAgentKind.Npc, self);
                 ARI.held_item_last_frame = undefined;
@@ -1441,6 +1489,12 @@ object_create(
                     //
                     with self.fsm.current_state() {
                         mounted_par_offsets(self.in_idle_variant);
+                        self.mount_cycle_override = undefined;
+                        if ARI.mount.variant == "giant_chicken_white"
+                            || ARI.mount.variant == "giant_chicken_gold"
+                        {
+                            self.mount_cycle_override = MountCycle.Back;
+                        }
                     }
                 }
             }
@@ -1717,11 +1771,17 @@ object_create(
                     case ItemUse.UnlockPetCosmetic:
                         GLYPH_GUIDE.set_input(InputId.Interact, "misc_local/unlock_cosmetic", GlyphGuidePriority.Low);
                         break;
+                    case ItemUse.CrackEgg:
+                        GLYPH_GUIDE.set_input(InputId.Interact, "misc_local/open_egg", GlyphGuidePriority.Low);
+                        break;
                     case ItemUse.UnlockPetSkin:
                         GLYPH_GUIDE.set_input(InputId.Interact, "misc_local/unlock_pet_skin", GlyphGuidePriority.Low);
                         break;
                     case ItemUse.UnlockDate:
                         GLYPH_GUIDE.set_input(InputId.Interact, "misc_local/unlock_date", GlyphGuidePriority.Low);
+                        break;
+                    case ItemUse.UnlockSong:
+                        GLYPH_GUIDE.set_input(InputId.Interact, "misc_local/unlock_song", GlyphGuidePriority.Low);
                         break;
                     case ItemUse.Bomb:
                         GLYPH_GUIDE.set_input(InputId.Throw, "misc_local/throw", GlyphGuidePriority.Low);
@@ -1940,11 +2000,6 @@ object_create(
                 }
             }
         },
-        draw_begin: function() {
-            if multiple_player_animation_runtimes() == false {
-                self.par.render_offscreen();
-            }
-        },
         draw: function() {
             //
             if ARI.end_of_day_sequence {
@@ -1953,16 +2008,14 @@ object_create(
             }
 
             var anim_speed = self.par_anim_spd * (!non_cutscene_pause() || ANCHOR.get_menu(Menu.Textbox) != undefined);
+            gpu_set_depth_sub_offset(64);
             fsm.draw();
-
-            if multiple_player_animation_runtimes() {
-                self.par.render_offscreen();
-            }
-
+            gpu_set_depth_sub_offset(0);
+            
             var ratio = DISPLAY.asset_resize();
             var draw_x = floor((x + self.par_offset.x) * ratio) / ratio;
             var draw_y = floor((y + self.par_offset.y + z) * ratio) / ratio;
-            self.par.draw(draw_x, draw_y);
+            self.par.draw(draw_x, draw_y, self.depth);
             self.par.animate(anim_speed);
             fsm.draw_after();
 

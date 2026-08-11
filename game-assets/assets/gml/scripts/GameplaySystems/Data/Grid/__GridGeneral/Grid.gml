@@ -25,7 +25,7 @@ function Grid(cell_width, cell_height, location_id, dyn_index=undefined) constru
     self.node_terrain_variant = array_create(self.node_len, 0);
     self.node_terrain_tile = array_create(self.node_len, 0);
     self.node_footstep_kind = array_create(self.node_len, 0);
-    self.node_force = array_create(self.node_len, 0);
+    self.node_force = array_create(self.node_len, undefined);
     self.node_is_room_editor_collision = array_create(self.node_len, RoomEditorCollision.None);
     self.node_collideable = array_create(self.node_len, false);
     self.node_can_jump_over = array_create(self.node_len, false);
@@ -415,10 +415,6 @@ function Grid(cell_width, cell_height, location_id, dyn_index=undefined) constru
                             }
                             break;
                         case ObjectCategory.Furniture:
-                            if self.node_object_id[ni] == ObjectId.EspressoMachine {
-                                self.node_parent[ni].can_make_espresso = true;
-                            }
-
                             if self.node_parent[ni].prototype.soup_pot != undefined {
                                 self.node_parent[ni].status = PerpetualSoupStatus.NoItem;
                             }
@@ -1078,11 +1074,11 @@ function Grid(cell_width, cell_height, location_id, dyn_index=undefined) constru
             //
             var object_id = try_string_to_object_id(obj.object_id);
             if object_id == undefined {
-                if !DEBUG_ASSERTIONS {
+                if DEBUG_ASSERTIONS {
+                    crash("Unexpected ObjectId name `{}`, did not match any ids", obj.object_id)
+                } else {
                     error("Unexpected object name: `{}`. ignoring...", obj.object_id);
                     continue;
-                } else {
-                    crash("Unexpected ObjectId name `{}`, did not match any ids", obj.object_id)
                 }
             }
             var category = object_id_to_object_category(object_id);
@@ -1187,6 +1183,11 @@ function Grid(cell_width, cell_height, location_id, dyn_index=undefined) constru
                     continue;
                 }
 
+                //
+                if name == "active_toy_sfx" {
+                    continue;
+                }
+
                 if name == "blueprint_id" {
                     node.blueprint_id = string_to_blueprint(obj[$ name]);
                     continue;
@@ -1239,6 +1240,11 @@ function Grid(cell_width, cell_height, location_id, dyn_index=undefined) constru
                             }
                             continue;
                         } else if name == "greenhouse_watered_positions" {
+                            //
+                            //
+                            if node.prototype["crop_area_end"] == undefined {
+                                continue;
+                            }
                             apply_greenhouse_watered_positions(node, obj.greenhouse_watered_positions);
                             continue;
                         }
@@ -1418,6 +1424,7 @@ function create_grid_object_serialization_data(parent, inventories) {
             case "parent_grid":
             case "write_size_x":
             case "write_size_y":
+            case "active_toy_sfx":
                 continue;
             case "object_id":
                 o[$ n] = object_id_to_string(parent[$ n]);

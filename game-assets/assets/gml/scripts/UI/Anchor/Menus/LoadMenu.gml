@@ -175,7 +175,7 @@ function LoadMenu(canvas) : AnchorMenu(Menu.Load) constructor {
 
             ANCHOR.text(weather_icon)
                 .set_align(Align.LeftOut, Align.Middle)
-                .set_xy(-3, 1)
+                .set_x(-3)
                 .set_lut(COMMON_LUT)
                 .set_text(
                     format(
@@ -191,7 +191,7 @@ function LoadMenu(canvas) : AnchorMenu(Menu.Load) constructor {
                 .set_xy(-9, 34)
 
             ANCHOR.text(year_icon)
-                .set_xy(-3, 1)
+                .set_x(-3)
                 .set_lut(COMMON_LUT)
                 .set_align(Align.LeftOut, Align.Middle)
                 .set_text(format("{Local} {}", "misc_local/year", get_years(data.calendar_time) + 1))
@@ -202,7 +202,7 @@ function LoadMenu(canvas) : AnchorMenu(Menu.Load) constructor {
                 .set_xy(-9, 46)
 
             ANCHOR.text(renown_icon)
-                .set_xy(-3, 1)
+                .set_x(-3)
                 .set_lut(COMMON_LUT, CommonLutIndex.Green)
                 .set_align(Align.LeftOut, Align.Middle)
                 .set_text(format("Lvl {}", renown_to_level(data.stats.renown)),)

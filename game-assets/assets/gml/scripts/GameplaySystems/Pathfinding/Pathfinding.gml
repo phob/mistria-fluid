@@ -36,7 +36,8 @@ function Pathfinding() constructor {
         hyperpath_surround_taken_tiles_with_bad_tiles(10);
     }
 
-    function harvest_festival_ignore_pathfinding_costs() {
+    //
+    function enable_simple_pathfinding() {
         //
         for (var i = 0; i < GRID.dims.x; i++) {
             for (var j = 0; j < GRID.dims.y; j++) {

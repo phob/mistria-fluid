@@ -21,6 +21,7 @@ function Ari() constructor {
         self.has_seen_ritual_level_today = false;
         self.has_seen_arena_level_today = false;
         self.has_gossiped_today = false;
+        self.used_object_today = array_bool(ObjectId.LEN);
 
         //
         self.pending_renown_entries.drain(function(e) {
@@ -29,7 +30,7 @@ function Ari() constructor {
         });
 
         //
-        if renown_to_level(self.renown) >= 50 {
+        if renown_to_level(self.renown) >= 40 {
             if self.crown_cooldown == undefined {
                 self.crown_cooldown = 3;
             }
@@ -110,6 +111,8 @@ function Ari() constructor {
         if menu != undefined {
             menu.update_essence();
         }
+
+        refresh_achievements([Requirement.ReachedEssence]);
     }
 
     //
@@ -351,6 +354,8 @@ function Ari() constructor {
         if menu != undefined {
             menu.gold_animator.set_gold(gold);
         }
+
+        refresh_achievements([Requirement.EarnedGold]);
     }
 
     //
@@ -408,6 +413,22 @@ function Ari() constructor {
             });
 
             level += 1;
+
+            var next_quest = renown_level_to_quest(level);
+            var last_quest = renown_level_to_quest(level - 10);
+            if next_quest != undefined {
+                QUEST_LOG.start(next_quest);
+            }
+            if last_quest != undefined {
+                var active_quest = QUEST_LOG.active.get(last_quest);
+                if active_quest == undefined {
+                    warn("Couldn't find an active quest for '{}'!", last_quest);
+                } else {
+                    var status = active_quest.progress();
+                    assert_eq(status, ProgressOutput.Complete);
+                    QUEST_LOG.complete(last_quest);
+                }
+            }
         }
     }
 
@@ -536,6 +557,7 @@ function Ari() constructor {
         for (var i = 0; i < ItemId.LEN; i++) {
             if ITEM_PROTOTYPES[i].recipe_key == recipe_key {
                 ARI.items_acquired[i] = true;
+                ARI.almanac_items_remaining.remove(string(i));
             }
         }
     }
@@ -544,7 +566,8 @@ function Ari() constructor {
         self.status_effects.update();
 
         //
-        self.inventory_subscriber.pull().for_each(function(slot) {
+        var updates = self.inventory_subscriber.pull();
+        updates.for_each(function(slot) {
             //
             with obj_item {
                 self.update_can_chase();
@@ -559,6 +582,10 @@ function Ari() constructor {
             //
             mark_item_as_acquired(slot.item.item_id);
         });
+
+        if !updates.is_empty() {
+            refresh_achievements([Requirement.CompletedAlmanac]);
+        }
 
         //
         self.armor_subscriber.pull().for_each(function(_) {
@@ -596,8 +623,8 @@ function Ari() constructor {
         self.gold = _struct.gold;
         self.essence = _struct.essence;
         self.renown = _struct.renown;
-        self.mana_current = _struct.mana_current;
-        self.mana_max = _struct.mana_max;
+        self.mana_current = int64(_struct.mana_current);
+        self.mana_max = int64(_struct.mana_max);
         self.status_effects.deserialize(_struct.status_effects);
         self.health_current = _struct.health_current;
         self.base_health = _struct.base_health;
@@ -652,6 +679,26 @@ function Ari() constructor {
         }
     }
 
+    function monsters_killed(category) {
+        var count = 0;
+        var to_check = array_concat(GAME_STATS.mines_data, game_stats_mines_floor_available()
+            ? [GS_MINES_RUN, { floor_data: [GS_MINES_FLOOR] }]
+            : [],
+        );
+        for (var j = 0; j < array_length(to_check); j++) {
+            var run = to_check[j];
+            for (var k = 0; k < array_length(run.floor_data); k++) {
+                for (var h = 0; h < MonsterId.LEN; h++) {
+                    if MONSTER_PROTOTYPES[h].monster_category == category {
+                        var key = monster_id_to_string(h);
+                        count += run.floor_data[k].enemy_kill[key] ?? 0;
+                    }
+                }
+            }
+        }
+        return count;
+    }
+
     function animation_assets() {
         return self.presets.get(self.preset_index_selected);
     }
@@ -701,17 +748,20 @@ function Ari() constructor {
         if !silent && old_skill_level != ARI.level(skill) {
             TANGO.play("SoundEffects/Ari/LevelUp");
             ANCHOR.get_menu(Menu.Dingaling).create_skill_dingaling(skill, old_skill_level);
+            refresh_achievements([Requirement.ReachedSkillLevel]);
         }
     }
 
-    function perk_value(perk, key="value") {
+    function perk_value(perk, key) {
+        key = key == undefined ? "value" : key;
+
         //
         if self.perks[perk] == false || self.perks_active[perk] == false {
             return 0;
         }
 
         var value = fiddle_get(format("perks/{Perk}/{}", perk, key));
-    
+
         if TEST_SUITE {
             static BANNED_TS_PERKS = [
                 Perk.WesternRuinsScholar,
@@ -751,6 +801,8 @@ function Ari() constructor {
             perk: perk_to_string(perk),
             day: total_days(),
         });
+
+        refresh_achievements([Requirement.HasAtLeastOneTierFivePerkPerCategory]);
     }
 
     function check_for_held_items(ari_instance) {
@@ -783,7 +835,6 @@ function Ari() constructor {
                         held_offsets.x,
                         held_offsets.y,
                         held_offsets.x,
-                        true,
                     );
                     ari_instance.set_animation(AnimationName.Pickup);
                 }
@@ -883,6 +934,10 @@ function Ari() constructor {
     }
 
     function held_child() {
+        if MIST.blackboard.get("no_held_child") == true {
+            return undefined;
+        }
+
         var child = undefined;
         for (var i = 0; i < array_length(self.children); i++) {
             if self.children[i].location == ChildLocation.WithAri {
@@ -892,6 +947,40 @@ function Ari() constructor {
         }
 
         return child;
+    }
+
+    function build_almanac_items_remaining() {
+        self.almanac_items_remaining.clear();
+        var categories = fiddle_get("ui/menus/sub_menus/almanac/categories");
+        for (var i = 0; i < array_length(categories); i++) {
+            var key = categories[i].key;
+            var tags = categories[i].tags;
+            for (var j = 0; j < array_length(tags); j++) {
+                for (var k = 0; k < ItemId.LEN; k++) {
+                    if !self.items_acquired[i] && ITEM_PROTOTYPES[k].tags.contains(tags[j]) {
+                        self.almanac_items_remaining.insert(string(k));
+                    }
+                }
+            }
+        }
+    }
+
+    function unlocked_all_chicken_tiers() {
+        var chickens = ARI.animal_variant_unlocks[AnimalKind.Chicken].keys();
+        var tiers = array_create(7, false);
+        for (var i = 0; i < array_length(chickens); i++) {
+            var variant = ANIMAL_PROTOTYPES[AnimalKind.Chicken].variants.get(chickens[i]);
+            tiers[ANIMAL_PROTOTYPES[AnimalKind.Chicken].variants.get(chickens[i]).tier] = true;
+        }
+
+        //
+        for (var i = 1; i < array_length(tiers); i++) {
+            if tiers[i] == false {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     invulnerable_hits = 0;
@@ -975,9 +1064,14 @@ function Ari() constructor {
     has_seen_ritual_level_today = false;
     has_seen_arena_level_today = false;
     has_gossiped_today = false;
+    used_object_today = array_bool(ObjectId.LEN);
     date_unlocks = array_bool(Date.LEN);
     date_history = [];
     transparency_list = ds_list_create();
+    song_unlocks = [];
+    song_overrides = array_create(LocationId.LEN, undefined);
+    dyn_song_overrides = {};
+    bell_sound = "default";
 
     end_of_day_status = undefined;
     mount = undefined;
@@ -998,6 +1092,17 @@ function Ari() constructor {
 
     proposal_date = undefined;
     wedding_date = undefined;
+
+    has_protection_scroll = false;
+
+    disable_break_ups = false;
+    disable_break_up_letters = false;
+
+    //
+    //
+    //
+    almanac_items_remaining = HashSet();
+    self.build_almanac_items_remaining();
 }
 
 function play_heal_vfx(color, sprite) {

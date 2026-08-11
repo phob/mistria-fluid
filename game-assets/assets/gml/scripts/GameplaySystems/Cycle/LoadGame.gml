@@ -45,6 +45,8 @@ function load_game(loader) {
 
     trace("Loaded files in {ms}.", get_timer() - core_time);
 
+    CHECK_ACHIEVEMENTS = false;
+
     CREATION_VERSION = files.info.creation_version;
 
     random_set_seed(real(files.gamedata.random_seed));
@@ -57,6 +59,7 @@ function load_game(loader) {
     CLOCK.set_time(int64(real(files.gamedata.clock)));
     PLAYTIME = files.gamedata.playtime;
     FARM_EXPANDED = files.gamedata.farm_expanded;
+    GAME_STATS = files.game_stats;
 
     //
     MINUTES_PER_DAY = fiddle_get(format("misc/{}_minutes_per_day", files.gamedata.day_time_speed));
@@ -99,6 +102,9 @@ function load_game(loader) {
     ARI.has_seen_ritual_level_today = files.player.has_seen_ritual_level_today;
     ARI.has_seen_arena_level_today = files.player.has_seen_arena_level_today;
     ARI.has_gossiped_today = files.player.has_gossiped_today;
+    ARI.used_object_today = files.player["used_object_today"] != undefined
+        ? deserialize_array_bool(files.player.used_object_today, string_to_object_id, ObjectId.LEN)
+        : array_bool(ObjectId.LEN);
     ARI.date_history = apply_func(files.player.date_history, function(v) {
         v.date = string_to_date(v.date);
         v.npc = string_to_npc_id(v.npc);
@@ -133,6 +139,7 @@ function load_game(loader) {
         try_string_to_item_id,
         ItemId.LEN,
     );
+    ARI.build_almanac_items_remaining();
 
     ARI.tutorials_seen = deserialize_array_bool(
         files.player.tutorials_seen,
@@ -171,6 +178,17 @@ function load_game(loader) {
         Date.LEN,
     );
 
+    ARI.song_unlocks = files.player["song_unlocks"] ?? [];
+    var overrides = files.player["song_overrides"] ?? {};
+    var keys = struct_get_names(overrides);
+    for (var i = 0 ; i < array_length(keys); i++) {
+        ARI.song_overrides[string_to_location_id(keys[i])] = overrides[keys[i]];
+    }
+    ARI.dyn_song_overrides = files.player["dyn_song_overrides"] ?? {};
+
+    ARI.disable_break_ups = files.player["disable_break_ups"] ?? false;
+    ARI.disable_break_up_letters = files.player["disable_break_up_letters"] ?? false;
+
     apply_struct_to_array(
         ARI.items_sold,
         files.player.items_sold,
@@ -193,21 +211,8 @@ function load_game(loader) {
         v.utero = string_to_utero(v.utero);
         return v;
     });
-    ARI.children = opt_and_then(files.player["children"], function(v) {
-        apply_func(v, function(v) {
-            var c = new Child(
-                string_to_child_id(v.id),
-                v.birthday,
-                string_to_child_skin_tone(v.skin_tone)
-            );
-            c.name = v.name;
-            c.location = string_to_child_location(v.location);
-            c.stage = string_to_child_stage(v.stage);
-            return c;
-        });
 
-        return v;
-    }) ?? [];
+    ARI.has_protection_scroll = files.player["has_protection_scroll"] ?? false;
 
     ARCHAEOLOGY = new Archaeology();
     RENOWN_REWARD_INVENTORY.deserialize(files.player.renown_reward_inventory);
@@ -222,12 +227,14 @@ function load_game(loader) {
     DECOR.floorings = deserialize_floorings(files.player.floorings);
     DECOR.wallpapers = deserialize_wallpapers(files.player.wallpapers);
     DECOR.upper_floor = files.player.upper_floor;
+    DECOR.variant = opt_and_then(files.player["home_variant"], string_to_home_variant) ?? HomeVariant.StoneCottage;
 
     ARI.quest_artifacts = MapWrap(files.player.quest_artifacts);
     ARI.festival_date_partner = opt_and_then(files.player[$ "festival_date_partner"], string_to_npc_id);
 
     SECRET_BEACH = files.player[$ "secret_beach"] ?? 0;
     SECRET_NARROWS = files.player[$ "secret_narrows"] ?? 0;
+    SECRET_TOWER = files.player[$ "secret_tower"] ?? 0;
 
     trace("Loaded player in {ms}.", get_timer() - player_time);
 
@@ -297,7 +304,7 @@ function load_game(loader) {
     //
     var mount = files.player[$ "mount"];
     if mount != undefined {
-        ARI.mount = create_default_mount();
+        ARI.mount = create_default_mount("mistmare");
         ARI.mount.kind = string_to_animal_kind(mount.kind);
         ARI.mount.variant = mount.variant;
         ARI.mount.sex = string_to_sex(mount.sex);
@@ -458,6 +465,24 @@ function load_game(loader) {
             npc.brain_dead = false;
         }
     }
+
+    ARI.children = opt_and_then(files.player["children"], function(v) {
+        apply_func(v, function(v) {
+            var c = new Child(
+                string_to_child_id(v.id),
+                v.birthday,
+                string_to_child_skin_tone(v.skin_tone)
+            );
+            c.name = v.name;
+            c.stage = string_to_child_stage(v.stage);
+            c.set_location(string_to_child_location(v.location));
+            return c;
+        });
+
+        return v;
+    }) ?? [];
+    report_children_facts();
+
     trace("Loaded t2 and npcs in {ms}.", get_timer() - npc_time);
 
     apply_struct_to_array(
@@ -482,8 +507,6 @@ function load_game(loader) {
 
     Game.play_time_comparator = current_time() / 1000;
 
-    GAME_STATS = files.game_stats;
-
     MIST_SIGHT_ACTIVE_INDEX = files.gamedata.active_mist_sight;
 
     GS_MINES_RUN = undefined;
@@ -506,6 +529,7 @@ function load_game(loader) {
     DATE_PHOTOS = array_map(files.date_photos.photos, function(v) {
         return {
             photo: v.photo,
+            photo_decompressed: undefined,
             timestamp: v.timestamp,
             npc: string_to_npc_id(v.npc),
             date: string_to_date(v.date),
@@ -520,6 +544,12 @@ function load_game(loader) {
             day: total_days(),
         },
     );
+
+    //
+    portrait_atlas_load(season_to_portrait_atlas(CALENDAR.season()));
+
+    CHECK_ACHIEVEMENTS = true;
+    refresh_achievements();
 
     trace("Finished load in {s}.", get_timer() - start_time);
 }

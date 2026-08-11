@@ -42,12 +42,16 @@ object_create(
             function give_resource() {
                 switch self.type {
                     case MorselType.Essence:
-                        TANGO.play("SoundEffects/Inventory/EssenceAbsorb");
+                        if self.play_sound {
+                            TANGO.play("SoundEffects/Inventory/EssenceAbsorb");
+                        }
                         ARI.modify_essence(self.amount);
                         break;
 
                     case MorselType.Stamina:
-                        TANGO.play("SoundEffects/Inventory/StaminaBulbAbsorb");
+                        if self.play_sound {
+                            TANGO.play("SoundEffects/Inventory/StaminaBulbAbsorb");
+                        }
                         if ARI.get_stamina() < ARI.get_max_stamina() {
                             ARI.modify_stamina(self.amount);
                         }
@@ -55,13 +59,17 @@ object_create(
 
                     case MorselType.Health:
                         //
-                        TANGO.play("SoundEffects/Inventory/StaminaBulbAbsorb");
+                        if self.play_sound {
+                            TANGO.play("SoundEffects/Inventory/StaminaBulbAbsorb");
+                        }
                         ARI.modify_health(self.amount);
                         break;
                 }
             }
 
-            TANGO.play(snd);
+            if self.play_sound {
+                TANGO.play(snd);
+            }
         },
         step: function() {
             depth = get_instance_depth(y, z);

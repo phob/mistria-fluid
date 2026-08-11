@@ -61,6 +61,11 @@ object_create(
             if(counter > lifetime) {
                 instance_destroy();
             }
+
+            var _angle = image_angle;
+            if(angle_lock != undefined) {
+                _angle = (image_angle div angle_lock) * angle_lock;
+            }
         },
         step_end: function() {
             if follow_obj != undefined && instance_exists(follow_obj) {
@@ -69,24 +74,6 @@ object_create(
                 self.follow_object_xprevious = follow_obj.x;
                 self.follow_object_yprevious = follow_obj.y;
             }
-        },
-        draw: function() {
-
-            var _angle = image_angle;
-            if(angle_lock != undefined) {
-                _angle = (image_angle div angle_lock) * angle_lock;
-            }
-            draw_sprite_ext_pixel_perfect(
-                sprite_index,
-                image_index,
-                x,
-                y,
-                image_xscale,
-                image_yscale,
-                _angle,
-                image_blend,
-                image_alpha
-            );
         },
     }
 );

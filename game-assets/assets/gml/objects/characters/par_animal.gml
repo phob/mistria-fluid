@@ -41,7 +41,15 @@ object_create(
             }
 
             function draw_routine(xx, yy) {
-                self.pre_draw();
+                if self.highlighter.update(x, y) {
+                    self.image_blend = self.highlighter.color;
+                    self.image_alpha = self.highlighter.strength;
+                } else {
+                    self.image_blend = c_white;
+                    self.image_alpha = 0.0;
+                }
+
+                animal_set_up_draw(self.sprites);
                 self.wrapped_draw(self.sprite_index, xx, yy);
                 gpu_reset_extra();
 
@@ -61,7 +69,7 @@ object_create(
                 }
 
                 if self.sprites.top_sprite != undefined {
-                    self.pre_draw();
+                    animal_set_up_draw(self.sprites);
                     self.wrapped_draw(self.sprites.top_sprite, xx, yy);
                     gpu_reset_extra();
                 }
@@ -123,17 +131,6 @@ object_create(
                         });
                 }
             }
-            function pre_draw() {
-                if highlighter.update(x, y) {
-                    image_blend = self.highlighter.color;
-                    image_alpha = self.highlighter.strength;
-                } else {
-                    image_blend = c_white;
-                    image_alpha = 0.0;
-                }
-
-                animal_set_up_draw(self.sprites);
-            }
 
             function wrapped_draw(sprite, xx, yy) {
                 if is_nullish(xx) {
@@ -181,7 +178,7 @@ object_create(
 
             function should_use_hop_movement() {
                 return self.me[$ "kind"] == AnimalKind.Rabbit
-                    || self.me == PET && matches(PET.pet_kind(), PetKind.Oreclod, PetKind.Rockclod);
+                    || self.me == PET && matches(PET.pet_kind(), PetKind.Oreclod, PetKind.Rockclod, PetKind.Enchantern, PetKind.Stalagmite, PetKind.Mimic, PetKind.RockStack, PetKind.GriffinStatue);
             }
 
             self.me.instance = self;

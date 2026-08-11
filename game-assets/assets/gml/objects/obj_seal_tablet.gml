@@ -111,13 +111,17 @@ object_create(
 
                 menu.button = ANCHOR.nine_slice(menu.left_box)
                     .set_sprites_from_key("spr_ui_button")
-                    .set_size(58, 18)
+                    .set_size(68, 18)
                     .set_align(Align.Center, Align.Middle)
                     .set_y(11)
                     .add_text_label("misc_local/offer", COMMON_LUT, CommonLutIndex.Dark)
                     .set_tap_sound("SoundEffects/UI/UIExtraPositiveClick")
                     .add_to_pilot(menu.left_menu.pilot)
                     .set_think_callback(function(menu) {
+                        //
+                        if !instance_exists(self) {
+                            return;
+                        }
                         menu.button.set_unlocked(!self.inventory.is_empty());
                     }, [menu])
                     .set_tap_callback(function(menu) {

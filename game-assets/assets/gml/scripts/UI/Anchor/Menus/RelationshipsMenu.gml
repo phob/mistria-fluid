@@ -16,7 +16,10 @@ function RelationshipsMenu() : AnchorMenu(Menu.Relationships) constructor {
         if self.active_npc.is_spouse() {
             relationship_key = "misc_local/spouse";
         } else if self.active_npc.is_fiance() {
-            relationship_key = "misc_local/fiance";
+            //
+            relationship_key = self.active_npc.prototype.can_carry_child
+                ? "misc_local/fiancee"
+                : "misc_local/fiance";
         } else if self.active_npc.is_dating() {
             relationship_key = "misc_local/dating";
         } else if self.active_npc.is_best_friend() {
@@ -45,15 +48,20 @@ function RelationshipsMenu() : AnchorMenu(Menu.Relationships) constructor {
     self.journal.left_page.set_sprite(spr_ui_journal_book_page_layout_relationships_left);
     self.journal.right_page.set_sprite(spr_ui_journal_book_page_layout_relationships_right);
 
-    self.polaroid = npc_polaroid_ui(self.journal.right_page);
+    var alt = matches(local_language(), "fra", "spa", "rus");
+    self.polaroid = npc_polaroid_ui(self.journal.right_page, alt);
     self.polaroid.background.disable();
 
     self.portrait_heart = ANCHOR.sprite(self.polaroid.frame)
         .set_xy(-1, -1)
 
     self.detail_zone = ANCHOR.positional(self.journal.right_full_body)
-        .set_size(93, 117)
+        .set_size(94, 117)
         .set_align(Align.RightIn, Align.TopIn)
+
+    if alt {
+        self.detail_zone.add_width(4);
+    }
 
     self.gift_nodes = gift_preferences_ui(self.detail_zone);
 
@@ -69,7 +77,10 @@ function RelationshipsMenu() : AnchorMenu(Menu.Relationships) constructor {
 
         var text_node = ANCHOR.text(icon_node)
             .set_align(Align.RightOut, Align.Middle)
-            .set_xy(3, 1)
+            .set_x(3)
+            .allow_line_breaks()
+            .set_max_width(156)
+            .set_line_height(11)
             .set_lut(COMMON_LUT, lut_index)
 
         return {
@@ -78,7 +89,7 @@ function RelationshipsMenu() : AnchorMenu(Menu.Relationships) constructor {
         };
     }
 
-    var yy = 4;
+    var yy = 3;
     self.npc_field = field(yy, spr_illegal_8);
     yy += 14;
     self.birthday_field = field(yy, spr_ui_generic_birthday_icon);
@@ -98,10 +109,22 @@ function RelationshipsMenu() : AnchorMenu(Menu.Relationships) constructor {
     self.npc_id_current = undefined;
 
     //
-    for (var i = 0; i < NpcId.LEN; i++) {
-        var npc_data = NPCS[i];
+    var alpha_ordered_npcs = ListFromArray(array_create_ext(NpcId.LEN, identity));
 
-        if !npc_is_unlocked(i) {
+    //
+    if matches(local_language(), "spa", "fra") {
+        alpha_ordered_npcs.sort_with(function(a, b) {
+            return string_alphanumeric_comparison(
+                local_get(NPC_PROTOTYPES[a].name),
+                local_get(NPC_PROTOTYPES[b].name),
+            );
+        })
+    }
+    for (var i = 0; i < NpcId.LEN; i++) {
+        var npc_id = alpha_ordered_npcs.get(i);
+        var npc_data = NPCS[npc_id];
+
+        if !npc_is_unlocked(npc_id) {
             continue;
         }
 
@@ -123,7 +146,7 @@ function RelationshipsMenu() : AnchorMenu(Menu.Relationships) constructor {
         var element = self.npc_scroller.new_element(40)
             .add_to_pilot(self.pilot, true)
             .set_alpha(npc_data.has_met() ? 1 : UI_FADE_ALPHA)
-            .board_set("npc_id", i)
+            .board_set("npc_id", npc_id)
         element
             .add_text_label(
                 npc_data.has_met() ? npc_data.prototype.name : ANCHOR.wrap_for_local("???"),
@@ -131,12 +154,12 @@ function RelationshipsMenu() : AnchorMenu(Menu.Relationships) constructor {
             )
             .set_selected_getter(function(npc_id) {
                 return self.npc_id_current == npc_id;
-            }, [i])
+            }, [npc_id])
 
         if npc_data.has_met() {
             element.set_tap_callback(function(npc_id) {
                 self.set_to_npc_id(npc_id);
-            }, [i])
+            }, [npc_id])
         }
 
 
@@ -164,7 +187,7 @@ function RelationshipsMenu() : AnchorMenu(Menu.Relationships) constructor {
             .set_xy(-23, -21)
             .set_color(npc_data.has_met() ? c_white : c_black);
 
-        var data = fiddle_get(format("npcs/{NpcId}", i));
+        var data = fiddle_get(format("npcs/{NpcId}",npc_id));
         if data[$ "journal_person_offset"] != undefined {
             npc.add_x(data.journal_person_offset[0]);
             npc.add_y(data.journal_person_offset[1]);

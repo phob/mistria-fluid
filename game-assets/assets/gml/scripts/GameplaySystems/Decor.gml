@@ -9,6 +9,23 @@ enum HomeUpgrade {
     LEN
 }
 
+enum HomeVariant {
+    StoneCottage,
+    AdobeOne,
+    AdobeTwo,
+    AdobeThree,
+    LeafyCottageOne,
+    LeafyCottageTwo,
+    LeafyCottageThree,
+    TimberedOne,
+    TimberedTwo,
+    TimberedThree,
+    VictorianOne,
+    VictorianTwo,
+    VictorianThree,
+    LEN,
+}
+
 function Decor() constructor {
     floorings = {};
     wallpapers = {};
@@ -29,6 +46,7 @@ function Decor() constructor {
 
     size_upgrade = HomeUpgrade.Small;
     upper_floor = false;
+    variant = HomeVariant.StoneCottage;
 
     //
     transition_keys = fiddle_get("player_home/transition_keys");
@@ -159,37 +177,24 @@ function Decor() constructor {
         var location_key = location_id_to_string(grid.location_id);
         self.apply_wallpaper(self.wallpapers[$ location_key].wallpaper, self.wallpapers[$ location_key].door_mold_sprite, false, self.wallpapers[$ location_key].infusion);
         self.apply_flooring(self.floorings[$ location_key].flooring, false, self.floorings[$ location_key].infusion);
-        //
-        instance_destroy(obj_shadow_level);
 
         //
+        //
+        instance_destroy(obj_shadow_level);
         var shadow_map_id = strict_layer_tilemap_get_id(shadow_id);
-        instance_create_depth(0, 0, layer_get_depth(shadow_id), obj_shadow_level, {
+        var shadow_level = instance_create_depth(0, 0, layer_get_depth(shadow_id), obj_shadow_level, {
             target_shadow_grid: SHADOW_GRID,
             shadow_maps: [shadow_map_id],
             shadow_map_offsets: [
                 Vec2(tilemap_get_x(shadow_map_id), tilemap_get_y(shadow_map_id)),
             ],
+            //
+            //
             render_outlines: true,
-            write_z: true,
         });
-
-        //
-        instance_create_depth(0, 0, room_data_layer_depth(location_id_to_gm_room(grid.location_id), "Level_0_Walls") - 1, obj_shadow_level, {
-            target_shadow_grid: new ShadowGrid(true),
-            shadow_maps: undefined,
-            render_outlines: false,
-            shadow_area: [
-                spr_pixel,
-                0,
-                0,
-                0,
-                room_width(),
-                room_height() / 4,
-            ],
-            wall_shadow: true,
-            write_z: true,
-        });
+        if DEBUG_TOOLS {
+            shadow_level.name = "Level_0_Shadows";
+        }
     }
 
     function on_room_start() {
@@ -319,7 +324,7 @@ function Decor() constructor {
             dump[$ arr[i]] = {
                 wallpaper: wp.wallpaper,
                 infusion: try_infusion_to_string(wp.infusion),
-                door_mold_sprite: asset_to_string(wp.door_mold_sprite)
+                door_mold_sprite: asset_to_string(wp.door_mold_sprite ?? spr_carpenter_house_f2_doorway2_spring)
             }
         }
         return dump;
@@ -412,7 +417,13 @@ function deserialize_wallpapers(data) {
         return_data[$ arr[i]] = {
             wallpaper: my_data.wallpaper,
             infusion: try_string_to_infusion(my_data.infusion),
-            door_mold_sprite: string_to_asset(my_data.door_mold_sprite)
+            door_mold_sprite: opt_and_then(my_data.door_mold_sprite, function(dms) {
+                try {
+                    return try_string_to_asset(dms);
+                } catch(_) {
+                    return undefined;
+                }
+            }) ?? "spr_carpenter_house_f2_doorway2_spring",
         }
     }
     return return_data;
@@ -441,5 +452,122 @@ function home_location_is_unlocked(lid) {
         case LocationId.PlayerHomeUpperEast:
         case LocationId.PlayerHomeUpperWest: return DECOR.upper_floor;
         default: impossible("Unexpected LocationId: {LocationId}", lid);
+    }
+}
+
+function layers_for_home_variant(variant) {
+    if variant == HomeVariant.StoneCottage {
+        return [
+            "Level_0_Assets_Player_House",
+            "Level_0_Windows",
+            "Level_0_Assets_Player_House_Upgrade_1",
+            "Level_0_Windows_Player_House_Upgrade_1",
+            "Level_0_Assets_Player_House_Upgrade_2",
+            "Level_0_Windows_Player_House_Upgrade_2",
+            "Level_0_Assets_Player_House_Upgrade_3",
+            "Level_0_Windows_Player_House_Upgrade_3",
+            "Level_0_Assets_Player_House_Upgrade_4",
+            "Level_0_Windows_Player_House_Upgrade_4",
+        ];
+    } else {
+        return [
+            home_variant_main_layer_tag(variant),
+            home_variant_window_layer_tag(variant),
+        ];
+    }
+}
+
+function home_variant_main_layer_tag(variant) {
+    var key;
+    switch variant {
+        case HomeVariant.AdobeOne:
+            key = "Adobe_1";
+            break;
+        case HomeVariant.AdobeTwo:
+            key = "Adobe_2";
+            break;
+        case HomeVariant.AdobeThree:
+            key = "Adobe_3";
+            break;
+        case HomeVariant.LeafyCottageOne:
+            key = "Leafy_Cottage_1";
+            break;
+        case HomeVariant.LeafyCottageTwo:
+            key = "Leafy_Cottage_2";
+            break;
+        case HomeVariant.LeafyCottageThree:
+            key = "Leafy_Cottage_3";
+            break;
+        case HomeVariant.TimberedOne:
+            key = "Timbered_1";
+            break;
+        case HomeVariant.TimberedTwo:
+            key = "Timbered_2";
+            break;
+        case HomeVariant.TimberedThree:
+            key = "Timbered_3";
+            break;
+        case HomeVariant.VictorianOne:
+            key = "Victorian_1";
+            break;
+        case HomeVariant.VictorianTwo:
+            key = "Victorian_2";
+            break;
+        case HomeVariant.VictorianThree:
+            key = "Victorian_3";
+            break;
+        default: impossible("Unexpected HomeVariant: {HomeVariant}", variant);
+    }
+
+    return format("Level_0_Assets_Player_House_{}", key);
+}
+
+function home_variant_window_layer_tag(variant) {
+    var key;
+    switch variant {
+        case HomeVariant.AdobeOne:
+        case HomeVariant.AdobeTwo:
+        case HomeVariant.AdobeThree:
+            key = "Adobe";
+            break;
+        case HomeVariant.LeafyCottageOne:
+        case HomeVariant.LeafyCottageTwo:
+        case HomeVariant.LeafyCottageThree:
+            key = "Leafy_Cottage";
+            break;
+        case HomeVariant.TimberedOne:
+        case HomeVariant.TimberedTwo:
+        case HomeVariant.TimberedThree:
+            key = "Timbered";
+            break;
+        case HomeVariant.VictorianOne:
+        case HomeVariant.VictorianTwo:
+        case HomeVariant.VictorianThree:
+            key = "Victorian";
+            break;
+        case HomeVariant.StoneCottage:
+            return undefined;
+        default: impossible("Unexpected HomeVariant: {HomeVariant}", variant);
+    }
+
+    return format("Level_0_Windows_Player_House_{}", key);
+}
+
+function home_variant_preview_sprite(variant) {
+      switch variant {
+        case HomeVariant.StoneCottage: return spr_ui_player_house_5_preview;
+        case HomeVariant.AdobeOne: return spr_ui_player_house_adobe_home_1_preview;
+        case HomeVariant.AdobeTwo: return spr_ui_player_house_adobe_home_2_preview;
+        case HomeVariant.AdobeThree: return spr_ui_player_house_adobe_home_3_preview;
+        case HomeVariant.LeafyCottageOne: return spr_ui_player_house_leafy_cottage_1_preview;
+        case HomeVariant.LeafyCottageTwo: return spr_ui_player_house_leafy_cottage_2_preview;
+        case HomeVariant.LeafyCottageThree: return spr_ui_player_house_leafy_cottage_3_preview;
+        case HomeVariant.TimberedOne: return spr_ui_player_house_timbered_home_1_preview;
+        case HomeVariant.TimberedTwo: return spr_ui_player_house_timbered_home_2_preview;
+        case HomeVariant.TimberedThree: return spr_ui_player_house_timbered_home_3_preview;
+        case HomeVariant.VictorianOne: return spr_ui_player_house_victorian_home_1_preview;
+        case HomeVariant.VictorianTwo: return spr_ui_player_house_victorian_home_2_preview;
+        case HomeVariant.VictorianThree: return spr_ui_player_house_victorian_home_3_preview;
+        default: impossible("Unexpected HomeVariant: {HomeVariant}", variant);
     }
 }

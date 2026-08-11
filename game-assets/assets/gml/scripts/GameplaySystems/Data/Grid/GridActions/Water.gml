@@ -75,11 +75,16 @@ function water_node(grid, x_pos, y_pos) {
     return true;
 }
 
-function water_all(grid) {
+function water_all(grid, crops_only=false) {
     //
     for (var xx = 0; xx < grid.dims.x; xx += 2) {
         for (var yy = 0; yy < grid.dims.y; yy += 2) {
             var ni = grid.node_index_for_cell(xx, yy);
+            if crops_only && (grid.node_object_id[ni] == undefined
+                || object_id_to_object_category(grid.node_object_id[ni]) != ObjectCategory.Crop)
+            {
+                continue;
+            }
             if can_water_node(grid, ni) {
                 if grid.node_terrain_kind[ni] == TerrainKind.Ground {
                     water_chunk(grid, xx, yy);

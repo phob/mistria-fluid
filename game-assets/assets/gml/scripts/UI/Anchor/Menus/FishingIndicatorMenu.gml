@@ -121,10 +121,10 @@ function FishingIndicatorMenu() : AnchorMenu(Menu.FishingIndicator) constructor 
                 self.dot_iterator += 1;
                 var lut_length = sprite_get_width(spr_cast_cursor_tile_lut);
                 var needed_lut_index = (lut_length div self.dot_count) * self.dot_iterator;
+                self.indicator.set_speed(1);
+                self.indicator.set_index(0);
                 if collision == false {
                     self.indicator.set_lut_index(needed_lut_index);
-                    self.indicator.set_speed(1);
-                    self.indicator.set_index(0);
                 } else {
                     self.indicator.set_lut_index(0);
                 }

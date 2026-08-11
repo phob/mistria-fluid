@@ -14,7 +14,6 @@ function interactable_fiddle_update() {
     var f = fiddle_get("interaction");
     STANDARD_INTERACTION_DISTANCE = f.standard_interaction_distance;
     BARK_FADE_SPEED = f.standard_bark_fade_speed;
-    BARK_MIN_ALPHA = f.standard_bark_min_alpha;
 }
 
 //

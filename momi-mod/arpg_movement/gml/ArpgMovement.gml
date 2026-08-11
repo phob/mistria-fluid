@@ -11,7 +11,10 @@
 //   When `click_to_interact` is enabled, tapping a distant interactable paths
 //   to its nearest reachable side and performs the vanilla interaction on
 //   arrival. Releases near the player re-inject the press instead, so normal
-//   tap-to-interact still works.
+//   tap-to-interact still works. A path that would cross open water is
+//   refused (invalid marker) — Pathfind ignores collision, and walking on
+//   water is not a move the player can make; interact paths pick a dry
+//   approach (bridge, far bank) when one exists.
 // - The raw right-button press is muted the moment it lands, so Interact
 //   (and anything else bound to right mouse) never fires during a hold.
 // - Any keyboard movement or discrete player command (actions, menus, toolbar,
@@ -23,11 +26,15 @@
 // - F6 toggles action-item auto-selection. When enabled and left mouse is
 //   bound to a vanilla tool-use action, a nearby clicked rock, tree/stump, or
 //   dig site selects its usable inventory tool before vanilla consumes that
-//   same click. Failing that, the watering can, hoe, or net is selected when
+//   same click, and a clicked breakable (mine barrels, crates, and debris,
+//   farm branches and leaf piles) arms an inventory weapon the same way. Failing that, the watering can, hoe, or net is selected when
 //   the game itself says that tool would act on the clicked tile, which covers
 //   watering, tilling, and bug catching. A click the held item already acts on
-//   is always left alone, so deliberate selections survive. Other world clicks
-//   select an inventory weapon only in mines.
+//   is always left alone, so deliberate selections survive. In the mines,
+//   combat outranks tools: while a live monster is close to the player
+//   (`sword_enemy_range_px`) or under the cursor, any world click arms an
+//   inventory weapon — even a click on a rock. With no monster near, mine
+//   clicks keep the current selection, so a hand-picked fishing rod casts.
 // - Action clicks keep aiming at the cursor while the player walks. Vanilla
 //   gives up on mouse aiming as soon as a moving player stops nudging the
 //   mouse, and silently falls back to the tile the player faces; the mod holds
@@ -78,6 +85,7 @@ function __arpg_movement_runtime() {
             last_y: undefined,
             step_x: 0,
             step_y: 0,
+            tool_retarget: undefined,
         };
     }
     return global.__arpg_movement;
@@ -103,6 +111,10 @@ function arpg_movement_config() {
         face_cursor_on_action: mmapi_config_bool(_source, "face_cursor_on_action", true),
         cursor_targeting_on_action: mmapi_config_bool(_source, "cursor_targeting_on_action", true),
         click_outside_closes_menus: mmapi_config_bool(_source, "click_outside_closes_menus", true),
+        // One field is 8px. Ambiguous mine clicks arm the weapon only when a
+        // live monster is inside this radius around the player (0 disables the
+        // player-radius check; clicks at a monster still arm it).
+        sword_enemy_range_px: mmapi_config_number(_source, "sword_enemy_range_px", 40, 0, 640),
     };
     // Keep the three distance bands coherent even if a user hand-edits the
     // JSON. The nearest band stops, the middle band walks, and only the
@@ -629,7 +641,10 @@ function __arpg_movement_plan_interact(_target) {
             _pos.y,
             true
         );
-        if (_path_data != undefined && _path_data.distance < _best_distance) {
+        if (_path_data != undefined
+            && _path_data.distance < _best_distance
+            && !__arpg_movement_path_crosses_water(_path_data))
+        {
             _best = {
                 x: _pos.x,
                 y: _pos.y,
@@ -909,6 +924,126 @@ function __arpg_movement_tool_reaches_node(_node, _item, _selection) {
     return false;
 }
 
+// Every 16px tile vanilla's update_cell_select() could legally choose from
+// this pose: the 3x3 around the player's tile plus the conditional two-tile
+// reach in the facing direction. Returned as cell (8px) top-left coords.
+function __arpg_movement_selection_candidates(_x, _y, _cardinal) {
+    var _tiles = [];
+    for (var _xx = -1; _xx < 2; _xx++) {
+        for (var _yy = -1; _yy < 2; _yy++) {
+            array_push(_tiles, [_xx, _yy]);
+        }
+    }
+
+    var _base_x = _x % 16;
+    var _base_y = _y % 16;
+    switch (_cardinal) {
+        case Cardinal.West:
+            if (_base_x < 8) {
+                array_push(_tiles, [-2, 0]);
+                array_push(_tiles, [-2, _base_y < 8 ? -1 : 1]);
+            }
+            break;
+        case Cardinal.East:
+            if (_base_x >= 8) {
+                array_push(_tiles, [2, 0]);
+                array_push(_tiles, [2, _base_y < 8 ? -1 : 1]);
+            }
+            break;
+        case Cardinal.North:
+            if (_base_y < 8) {
+                array_push(_tiles, [0, -2]);
+                array_push(_tiles, [_base_x < 8 ? -1 : 1, -2]);
+            }
+            break;
+        case Cardinal.South:
+            if (_base_y >= 8) {
+                array_push(_tiles, [0, 2]);
+                array_push(_tiles, [_base_x < 8 ? -1 : 1, 2]);
+            }
+            break;
+    }
+
+    var _norm_x = 16 * (_x div 16);
+    var _norm_y = 16 * (_y div 16);
+    var _out = array_create(array_length(_tiles));
+    for (var _i = 0; _i < array_length(_tiles); _i++) {
+        _out[_i] = {
+            x: (_norm_x + _tiles[_i][0] * 16) div 8,
+            y: (_norm_y + _tiles[_i][1] * 16) div 8,
+        };
+    }
+    return _out;
+}
+
+// Breakables (mine barrels, crates, debris piles, coral, farm branches) are
+// smashed by the sword's slash, not by any cell-selected tool, and the game's
+// item_effects_node_at_cell() has no ItemUse.Attack case to ask. Swing range
+// is approximated the way the tools do it: the node counts as reachable when
+// any vanilla-legal selection's 2x2 covers one of its cells. The mod already
+// turns the player toward the cursor on an action click, so a node inside
+// that range sits in the swing arc.
+function __arpg_movement_node_in_swing_range(_x, _y, _cardinal, _node) {
+    var _candidates = __arpg_movement_selection_candidates(_x, _y, _cardinal);
+    for (var _i = 0; _i < array_length(_candidates); _i++) {
+        var _cand = _candidates[_i];
+        for (var _xx = 0; _xx < 2; _xx++) {
+            for (var _yy = 0; _yy < 2; _yy++) {
+                var _ni = GRID.try_node_index_for_cell(_cand.x + _xx, _cand.y + _yy);
+                if (_ni != undefined && GRID.node_parent[_ni] == _node) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+// Node sprites overhang their grid footprint, so a click on the visible top
+// of a rock parks the cursor a tile outside the cells the rock occupies and
+// vanilla's cursor-nearest selection whiffs. This finds the vanilla-legal
+// selection nearest the cursor whose 2x2 still contains a cell of _node the
+// item acts on — proof the node is in genuine swing range even though the
+// cursor's own tile is not part of it. Scoring mirrors update_cell_select()
+// (squared distance to the cursor minus the half-tile offset) so the choice
+// is the one vanilla itself would have made from inside the footprint.
+function __arpg_movement_selection_reaching_node(_x, _y, _cardinal, _node, _prototype) {
+    var _candidates = __arpg_movement_selection_candidates(_x, _y, _cardinal);
+    var _mx = mouse_x() - 8;
+    var _my = mouse_y() - 8;
+    var _best = undefined;
+    var _best_score = infinity;
+
+    for (var _i = 0; _i < array_length(_candidates); _i++) {
+        var _cand = _candidates[_i];
+        var _hits = false;
+        for (var _xx = 0; _xx < 2 && !_hits; _xx++) {
+            for (var _yy = 0; _yy < 2; _yy++) {
+                var _cell_x = _cand.x + _xx;
+                var _cell_y = _cand.y + _yy;
+                var _ni = GRID.try_node_index_for_cell(_cell_x, _cell_y);
+                if (_ni != undefined
+                    && GRID.node_parent[_ni] == _node
+                    && GRID.item_effects_node_at_cell(_cell_x, _cell_y, _prototype))
+                {
+                    _hits = true;
+                    break;
+                }
+            }
+        }
+        if (!_hits) continue;
+
+        var _dx = _cand.x * 8 - _mx;
+        var _dy = _cand.y * 8 - _my;
+        var _score = _dx * _dx + _dy * _dy;
+        if (_score < _best_score) {
+            _best_score = _score;
+            _best = _cand;
+        }
+    }
+    return _best;
+}
+
 // Asks the game whether an item would act on the selected tiles at all. This
 // mirrors the validity test at the end of obj_ari.update_cell_select(): the net
 // acts only on the selected cell, every other item on any cell of its 2x2.
@@ -1024,9 +1159,31 @@ function __arpg_movement_is_deliberate_placement(_use) {
     return false;
 }
 
+// True when a live monster stands within _player_range_px of the player, or
+// within three fields of the cursor — clicking at a monster is combat intent
+// no matter how far away it stands. par_monster covers every real monster;
+// projectiles and effect objects are separate object trees and never match.
+function __arpg_movement_monster_near(_player_range_px) {
+    var _mx = mouse_x();
+    var _my = mouse_y();
+    var _count = instance_number(par_monster);
+    for (var _i = 0; _i < _count; _i++) {
+        var _monster = instance_find(par_monster, _i);
+        // A monster playing its death animation is no reason to draw steel.
+        if (_monster.hit_points <= 0) continue;
+        if (point_distance(obj_ari.x, obj_ari.y, _monster.x, _monster.y) <= _player_range_px
+            || point_distance(_mx, _my, _monster.x, _monster.y) <= 24)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Selects the item before AriFsm's Default step reads this frame's unchanged
-// left-button press. Recognized tool targets never fall back to a weapon when
-// the required tool is absent, inadequate, or out of range.
+// left-button press. In mine combat the weapon is chosen up front; outside it,
+// recognized tool targets never fall back to a weapon when the required tool
+// is absent, inadequate, or out of range.
 function __arpg_movement_auto_select_action_item(_rt) {
     if (!mouse_check_button_pressed(mb_left)
         || !__arpg_movement_left_is_action()
@@ -1035,7 +1192,9 @@ function __arpg_movement_auto_select_action_item(_rt) {
         return;
     }
 
-    if (__arpg_movement_point_over_actionable_ui()) return;
+    if (__arpg_movement_point_over_actionable_ui()) {
+        return;
+    }
 
     var _held = ARI.held_item();
     if (_held != undefined
@@ -1044,9 +1203,23 @@ function __arpg_movement_auto_select_action_item(_rt) {
         return;
     }
 
-    var _selection = __arpg_movement_mouse_cell_select(
-        __arpg_movement_predicted_pose(_rt, arpg_movement_config())
-    );
+    // In the mines, combat outranks tools: with a live monster close, the
+    // weapon wins every world click, even one on a rock — a mid-fight click
+    // must never trade the sword for a pickaxe, and a click that misses the
+    // monster and lands on an unreachable stone must still draw it. That is
+    // why this runs before the clicked-node branch.
+    if (is_dungeon_room(room())) {
+        var _weapon_index = __arpg_movement_find_item(ItemUse.Attack);
+        if (_weapon_index != undefined
+            && __arpg_movement_monster_near(arpg_movement_config().sword_enemy_range_px))
+        {
+            __arpg_movement_select_item(_weapon_index);
+            return;
+        }
+    }
+
+    var _pose = __arpg_movement_predicted_pose(_rt, arpg_movement_config());
+    var _selection = __arpg_movement_mouse_cell_select(_pose);
 
     var _node = __arpg_movement_clicked_node();
     if (_node != undefined) {
@@ -1067,14 +1240,39 @@ function __arpg_movement_auto_select_action_item(_rt) {
             case ObjectCategory.DigSite:
                 _tool_type = ToolType.Shovel;
                 break;
+            case ObjectCategory.Breakable:
+                // Mine barrels, crates, and debris (and farm branches/leaf
+                // piles) break with the sword's slash, so a click on one arms
+                // an inventory weapon exactly like a rock arms the pickaxe.
+                var _weapon_index = __arpg_movement_find_item(ItemUse.Attack);
+                if (_weapon_index == undefined
+                    || !__arpg_movement_node_in_swing_range(
+                        _pose.x, _pose.y, _pose.cardinal, _node
+                    ))
+                {
+                    return;
+                }
+                __arpg_movement_select_item(_weapon_index);
+                return;
         }
 
         if (_tool_type != undefined) {
             var _tool_index = __arpg_movement_find_item(ItemUse.UseTool, _tool_type, _minimum_quality);
-            if (_tool_index == undefined) return;
+            if (_tool_index == undefined) {
+                return;
+            }
 
             var _tool = ARI.inventory.slot(_tool_index).item;
-            if (!__arpg_movement_tool_reaches_node(_node, _tool, _selection)) return;
+            // The cursor-anchored selection misses when the player clicked the
+            // node's sprite overhang; any other legal selection covering the
+            // node proves it is still within vanilla's swing range.
+            if (!__arpg_movement_tool_reaches_node(_node, _tool, _selection)
+                && __arpg_movement_selection_reaching_node(
+                    _pose.x, _pose.y, _pose.cardinal, _node, _tool.prototype
+                ) == undefined)
+            {
+                return;
+            }
             __arpg_movement_select_item(_tool_index);
             return;
         }
@@ -1101,11 +1299,8 @@ function __arpg_movement_auto_select_action_item(_rt) {
         return;
     }
 
-    // Outside the mines, ambiguous clicks preserve the user's farming,
-    // placement, or other current selection.
-    if (is_dungeon_room(room())) {
-        __arpg_movement_select_item(__arpg_movement_find_item(ItemUse.Attack));
-    }
+    // Every remaining click — no recognized target, no terrain tool, and no
+    // monster in reach (handled up front) — keeps the current selection.
 }
 
 // Vanilla aims a click at the cursor only while obj_ari.using_mouse is true,
@@ -1199,10 +1394,60 @@ function __arpg_movement_face_cursor_for_action() {
     obj_ari.face_dir(point_direction(obj_ari.x, obj_ari.y, _mx, _my));
 }
 
+// Clicking the visible top of a rock parks the cursor a tile outside the
+// rock's footprint, so the selection vanilla finalized for this swing points
+// at empty ground and the strike whiffs. The guard fires with movement,
+// facing, and cell_select all final; when that selection misses the node
+// under the cursor but another vanilla-legal one hits it, remember the better
+// selection. The tool state reads its target on a later animation frame, so
+// the next clock_tick delivers the correction before the strike lands.
+function __arpg_movement_plan_tool_retarget(_item) {
+    var _rt = __arpg_movement_runtime();
+    _rt.tool_retarget = undefined;
+
+    // Cursor-driven swings only: a keyboard-triggered tool aims by facing.
+    if (!mouse_check_button(mb_left)
+        || !__arpg_movement_left_is_action()
+        || ARI.held_animal_id != undefined)
+    {
+        return;
+    }
+    if (__arpg_movement_point_over_actionable_ui()) return;
+
+    // Only tools whose target is the clicked node itself. Hoe, watering can,
+    // and net act on the tile under the cursor, where vanilla's aim is right.
+    if (_item.prototype.use != ItemUse.UseTool) return;
+    switch (_item.prototype.tool_type) {
+        case ToolType.PickAxe:
+        case ToolType.Axe:
+        case ToolType.Shovel:
+            break;
+        default:
+            return;
+    }
+
+    var _node = __arpg_movement_clicked_node();
+    if (_node == undefined) return;
+
+    // Vanilla's own selection already reaches the node: leave it alone.
+    if (__arpg_movement_tool_reaches_node(_node, _item, obj_ari.cell_select)) {
+        return;
+    }
+
+    var _best = __arpg_movement_selection_reaching_node(
+        obj_ari.x, obj_ari.y, obj_ari.cardinal, _node, _item.prototype
+    );
+    if (_best == undefined) return;
+
+    _rt.tool_retarget = _best;
+}
+
 // The item-use guard runs after Default has moved and re-faced Ari but before
-// use_item() creates the action state. Reapply cursor facing at that exact seam
-// so the first weapon/tool action caches the cursor direction even while the
-// player is moving with the keyboard.
+// use_item() creates the action state. Reapply cursor facing at that exact
+// seam so the first weapon/tool action caches the cursor direction even while
+// the player is moving with the keyboard, then plan the aim correction for
+// sprite-overhang clicks from the same settled pose. The guard fires once per
+// swing, so held repeats stay corrected too.
 function arpg_movement_items_use_guard(_item) {
     if (!instance_exists(obj_ari) || game_paused() || ON_GAMEPAD) {
         return undefined;
@@ -1210,7 +1455,6 @@ function arpg_movement_items_use_guard(_item) {
 
     var _cfg = arpg_movement_config();
     if (!_cfg.enabled
-        || !_cfg.face_cursor_on_action
         || obj_ari.fsm.current_state_id() != PlayerState.Default
         || _item == undefined
         || (_item.prototype.use != ItemUse.Attack
@@ -1219,7 +1463,12 @@ function arpg_movement_items_use_guard(_item) {
         return undefined;
     }
 
-    __arpg_movement_face_cursor_for_action();
+    if (_cfg.face_cursor_on_action) {
+        __arpg_movement_face_cursor_for_action();
+    }
+    if (_cfg.cursor_targeting_on_action) {
+        __arpg_movement_plan_tool_retarget(_item);
+    }
     return undefined;
 }
 
@@ -1327,6 +1576,41 @@ function __arpg_movement_hold_walk_binding() {
     }
 }
 
+// Pathfind consumes its waypoints with no collision testing, so a path
+// segment crossing open water would carry Ari over the surface on foot — a
+// move the player can never make. Vanilla treats a node as swimmable water
+// when its terrain kind is Water (bridges keep their own terrain kind and
+// stay walkable). The waypoint list holds the destination first and Ari's
+// start last; sampling every segment at half-node steps visits each 8px node
+// a segment can touch.
+function __arpg_movement_path_crosses_water(_path_data) {
+    var _list = _path_data.output_list;
+    var _prev = undefined;
+    for (var _i = 0; _i < _list.count(); _i++) {
+        var _point = _list.get(_i);
+        var _steps = 1;
+        if (_prev != undefined) {
+            _steps = max(1, ceil(
+                point_distance(_prev.x, _prev.y, _point.x, _point.y) / 4
+            ));
+        }
+        for (var _s = 1; _s <= _steps; _s++) {
+            var _t = _s / _steps;
+            var _ni = GRID.try_node_index_for_room_position(
+                _prev == undefined ? _point.x : lerp(_prev.x, _point.x, _t),
+                _prev == undefined ? _point.y : lerp(_prev.y, _point.y, _t)
+            );
+            if (_ni != undefined
+                && GRID.node_terrain_kind[_ni] == TerrainKind.Water)
+            {
+                return true;
+            }
+        }
+        _prev = _point;
+    }
+    return false;
+}
+
 // Starts (or retargets) a Pathfind walk toward a position (used by taps).
 // A precomputed path lets smart interactions rank several approach points
 // without calculating the winning path twice. Returns false when none exists.
@@ -1348,6 +1632,10 @@ function __arpg_movement_path_to(_x, _y, _path_data=undefined) {
         _path_data = PATHFINDING.calculate_local_path(obj_ari.x, obj_ari.y, _x, _y, true);
     }
     if (_path_data == undefined) return false;
+
+    // The grid only blocks collideable nodes, so open water is path-legal
+    // even though the player cannot walk it. Refuse rather than surface-walk.
+    if (__arpg_movement_path_crosses_water(_path_data)) return false;
 
     // Walk speed or full run speed with the engine's buffs applied.
     var _old_toggle = ARI.run_toggle;
@@ -1566,6 +1854,24 @@ function arpg_movement_clock_tick(_ctx) {
     }
 
     var _sid = obj_ari.fsm.current_state_id();
+
+    // A swing armed by the use guard last frame reads its target cell on a
+    // later animation frame; deliver the corrected aim before the strike
+    // lands. One-frame lifetime: if the use was vetoed or the state is not
+    // the tool swing, the plan is stale and dropped.
+    if (_rt.tool_retarget != undefined) {
+        if (_sid == PlayerState.Tool) {
+            var _tool_state = obj_ari.fsm.current_state();
+            if (_tool_state != undefined
+                && _tool_state[$ "target_pos"] != undefined)
+            {
+                _tool_state.target_pos.x = _rt.tool_retarget.x;
+                _tool_state.target_pos.y = _rt.tool_retarget.y;
+            }
+        }
+        _rt.tool_retarget = undefined;
+    }
+
     if (_sid == PlayerState.Sword && _cfg.face_cursor_on_action) {
         __arpg_movement_aim_sword_combo();
     }
@@ -1859,5 +2165,5 @@ function arpg_movement_register_callbacks() {
 }
 
 // Boot wiring: memory-only top level.
-mmapi_mod_declare("arpg_movement", "2.1.0");
+mmapi_mod_declare("arpg_movement", "2.2.0");
 arpg_movement_register_callbacks();

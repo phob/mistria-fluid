@@ -2,10 +2,9 @@ object_create(
     "obj_damage_number",
     undefined,
     {
-        sprite_index: spr_fx_crit,
         create: function() {
             //
-
+            self.sprite_index = string_to_asset(format("spr_fx_crit_{}", asset_local_insert()));
             image_blend = c_white;
             self.font_name = undefined;
             self.font = undefined;
@@ -128,7 +127,7 @@ object_create(
             }
 
             if has_flag(self.damage_flag, DamageFlag.CRITICAL) && self.frame >= 10 {
-                xx += w / 2;
+                xx -= w / 2;
                 draw_sprite_ext(sprite_index, image_index, xx, yy, 1, 1, 0, c_white, image_alpha);
             }
         },

@@ -110,8 +110,7 @@ function factory_generate_storage_menu(node) {
         .set_lut(COMMON_LUT, CommonLutIndex.Header)
         .set_text_align(TextAlign.Center)
         .set_key(storage_info.header_local)
-        .set_lut(COMMON_LUT, CommonLutIndex.BlackOnGold)
-        .set_y(1);
+        .set_lut(COMMON_LUT, CommonLutIndex.BlackOnGold);
 
     menu.listing_plate = ANCHOR.nine_slice(header)
         .set_sprite(string_to_asset(storage_info.guide_box))
@@ -184,6 +183,8 @@ function factory_node_set_full(node) {
         }
     } else {
         node.renderer.set_sprite(node.prototype.cardinal_data[node.cardinal_index].sprite);
+        node.production_request = undefined;
+        node.production_tier = undefined;
     }
 }
 

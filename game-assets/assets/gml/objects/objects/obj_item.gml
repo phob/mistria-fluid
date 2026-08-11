@@ -338,7 +338,7 @@ object_create(
                     data[2],
                 );
             }
-            draw_sprite_ext_pixel_perfect(
+            draw_sprite_ext(
                 item_data.prototype.icon_sprite_outline,
                 image_index,
                 draw_x,
@@ -349,7 +349,7 @@ object_create(
                 outline_c,
                 image_alpha
             );
-            draw_sprite_ext_pixel_perfect(
+            draw_sprite_ext(
                 sprite_index,
                 image_index,
                 draw_x,

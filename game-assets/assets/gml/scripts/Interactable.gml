@@ -48,6 +48,7 @@ function find_nearest_interactable(list, owner) {
 
     var selection = undefined;
     var selection_value = -1;
+    var selection_priority = 0;
 
     for (var i = 0; i < len; i++) {
         var interactable = list[| i];
@@ -88,7 +89,7 @@ function find_nearest_interactable(list, owner) {
                         self.mask_index = self.override_mask;
                     }
                     distance = distance_to_point(ari_x, ari_y);
-                    if stash != undefined {
+                    if self.override_mask != undefined {
                         self.mask_index = stash;
                     }
                 }
@@ -111,12 +112,14 @@ function find_nearest_interactable(list, owner) {
         distance -= owner.interact_max_radius;
         distance *= -1;
 
-        if distance == selection_value {
-            if selection == undefined || instance_ids_compare_age(interactable.id, selection.id) == 1 {
-                selection = interactable;
-                selection_value = distance;
-            }
-        } else if distance > selection_value {
+        var this_priority = interactable["selection_priority"] ?? 0;
+
+        if (this_priority > selection_priority)
+            || (distance > selection_value)
+            || (distance == selection_value
+                && (selection == undefined || instance_ids_compare_age(interactable.id, selection.id) == 1))
+        {
+            selection_priority = this_priority;
             selection = interactable;
             selection_value = distance;
         }

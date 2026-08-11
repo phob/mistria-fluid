@@ -103,9 +103,19 @@ function __years(input) {
 }
 
 function localize_date(date, include_years=true) {
+    var delim = " ";
+    switch local_language() {
+        case "spa":
+            delim = " of ";
+            break;
+        case "fra":
+            delim = " - ";
+            break;
+    }
     var output = format(
-        "{Local} {}",
+        "{Local}{}{}",
         "misc_local/" + season_to_string(get_seasons(date)),
+        delim,
         get_days(date) + 1,
     );
 

@@ -298,7 +298,7 @@ object_create(
 
                                 var offset_x = lengthdir_x(16, cardinal_to_angle(owner.normalized_cardinal()));
                                 var offset_y = lengthdir_y(16, cardinal_to_angle(owner.normalized_cardinal()));
-
+                                var secondary_offset = owner.normalized_cardinal() == Cardinal.North || owner.normalized_cardinal() == Cardinal.South ? 180 : 0;
                                 instance_create_depth(
                                     owner.x + offset_x,
                                     owner.y + offset_y - 6,
@@ -310,7 +310,7 @@ object_create(
                                         monster_id: owner.monster_id,
                                         stats_entry: owner.stats_entry,
                                         mask_index: spr_fx_monster_essence_bat_sonic_attack,
-                                        dir_offset: 0,
+                                        dir_offset: secondary_offset,
                                         tango_asset: owner.config.misc_tango.projectile_spawn
                                     }
                                 );
@@ -328,7 +328,7 @@ object_create(
                                             stats_entry: owner.stats_entry,
                                             sprite_index: spr_fx_monster_essence_bat_sonic_attack_diagonal,
                                             mask_index: spr_fx_monster_essence_bat_sonic_attack,
-                                            dir_offset: 45,
+                                            dir_offset: 45 + secondary_offset,
                                             tango_asset: owner.config.misc_tango.projectile_spawn
                                         }
                                     );
@@ -345,7 +345,7 @@ object_create(
                                             stats_entry: owner.stats_entry,
                                             sprite_index: spr_fx_monster_essence_bat_sonic_attack_diagonal,
                                             mask_index: spr_fx_monster_essence_bat_sonic_attack,
-                                            dir_offset: 45,
+                                            dir_offset: 225 + secondary_offset,
                                             tango_asset: owner.config.misc_tango.projectile_spawn
                                         }
                                     );

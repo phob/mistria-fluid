@@ -30,6 +30,7 @@ object_create(
                         await_popup(self.spawn_menu);
                     }
                 });
+                self.mcp.buttons.last().add_width(40);
 
                 self.mcp.option("misc_local/view_wings", function() {
                     self.menu_inst = ANCHOR.spawn_menu(Menu.Museum);
@@ -40,6 +41,7 @@ object_create(
                         self.spawn_menu();
                     }
                 })
+                self.mcp.buttons.last().add_width(40);
             }
 
             self.register_interaction(

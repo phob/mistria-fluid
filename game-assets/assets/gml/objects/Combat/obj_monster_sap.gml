@@ -305,9 +305,6 @@ object_create(
                                     .notify(self)
                                     .set_provenance(owner.monster_id, owner.stats_entry)
                                     .gen();
-                            } else if self.tarball != undefined {
-                                instance_destroy(self.tarball);
-                                self.tarball = undefined;
                             }
                             if fsm.last_state_id == SaplingState.Attack {
                                 owner.image_index = 0;
@@ -358,6 +355,11 @@ object_create(
                                 if self.owner.config.sticky {
                                     instance_create_depth(owner.x, owner.y, get_shadow_depth() + 1, obj_sticky_patch, { timer: 300 });
                                 }
+                            }
+
+                            if self.tarball != undefined && self.landing {
+                                instance_destroy(self.tarball);
+                                self.tarball = undefined;
                             }
                         })
                         .stop(function() {

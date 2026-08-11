@@ -110,45 +110,56 @@ function PopupMenu() : AnchorMenu(Menu.Popup) constructor {
     //
     function add_title(local_key) {
         var width = self.backplate.get_width() - 30;
-        var height = ANCHOR.text_height(local_get(local_key), width) + 3;
 
         self.header = ANCHOR.nine_slice(self.backplate)
             .set_sprite(spr_ui_popup_box_header)
-            .set_size(width, height)
+            .set_width(width)
             .set_y(8)
             .set_align(Align.Center, Align.TopIn)
+
         self.title = ANCHOR.text(self.header)
             .set_align(Align.Center, Align.Middle)
-            .set_y(1)
             .set_lut(COMMON_LUT, CommonLutIndex.Header)
             .set_text_align(TextAlign.Center)
             .allow_line_breaks()
             .prevent_spillover()
             .set_key(local_key)
 
+        self.header.set_height(self.title.measure().y + 4);
+
         self.refresh_backplate_height();
         return self;
     }
 
     //
+    function title_overflow() {
+        if self.title == undefined {
+            return 0;
+        }
+        var lines = self.title.lines();
+        return floor(self.title.measure().y * (lines - 1) / lines);
+    }
+
+    //
     function add_description(local_key) {
         var width = self.backplate.get_width() - 20;
-        var required_height = ANCHOR.height_for_text_container(local_get(local_key), width);
         var minimum_height = self.backplate.get_height() / 2 - 5;
-        var height = max(required_height, minimum_height);
 
         self.body = ANCHOR.nine_slice(self.backplate)
             .set_sprite(spr_ui_popup_box_textbox)
-            .set_size(width, height)
+            .set_width(width)
             .set_align(Align.Center, Align.Middle)
+            .set_y(floor(self.title_overflow() / 2))
         self.body_text = ANCHOR.text(self.body)
             .set_align(Align.Center, Align.Middle)
             .set_lut(COMMON_LUT)
             .allow_line_breaks()
             .prevent_spillover()
-            //
+            .set_required_padding(8)
             .set_key(local_key)
             .set_text_style("popup_description")
+
+        self.body.set_height(max(self.body_text.measure().y + 12, minimum_height));
 
         self.refresh_backplate_height();
         return self;
@@ -161,13 +172,7 @@ function PopupMenu() : AnchorMenu(Menu.Popup) constructor {
             height += self.header.get_height() + self.header.get_y();
         }
         if self.body != undefined {
-            var needed_adjustment_for_title = self.title != undefined && self.title.lines() > 1
-                ? 7
-                : 0;
-
-            self.body.add_y(needed_adjustment_for_title);
-
-            height += self.body.get_height() + self.body.get_y() - needed_adjustment_for_title;
+            height += self.body.get_height();
         }
         self.backplate.set_height(height);
     }

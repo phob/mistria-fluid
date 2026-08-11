@@ -4,7 +4,10 @@ RENOWN = undefined;
 #macro RENOWN_REWARD_INVENTORY global.__renown_reward_inventory
 RENOWN_REWARD_INVENTORY = undefined;
 
-#macro MAX_RENOWN_LEVEL 95
+#macro MAX_RENOWN_LEVEL 100
+
+#macro RENOWN_LEVEL_COSTS global.__renown_level_costs
+RENOWN_LEVEL_COSTS = undefined;
 
 function load_renown() {
     var data = clone_value(fiddle_get("renown"));
@@ -18,16 +21,17 @@ function load_renown() {
     data.rewards = ListFromArray(data.rewards).map(parse_reward);
     data.ranks = ListFromArray(data.ranks);
 
+    RENOWN_LEVEL_COSTS = array_create(MAX_RENOWN_LEVEL + 1, 0);
+    for (var i = 1; i <= MAX_RENOWN_LEVEL; i++) {
+        RENOWN_LEVEL_COSTS[i] = RENOWN_LEVEL_COSTS[i - 1] + renown_level_individual_cost(i);
+    }
+
     return data;
 }
 
 //
 function renown_level_total_cost(level) {
-    var total = 0;
-    for (var i = 0; i <= level; i++) {
-        total += renown_level_individual_cost(i);
-    }
-    return total;
+    return RENOWN_LEVEL_COSTS[clamp(level, 0, MAX_RENOWN_LEVEL)];
 }
 
 //
@@ -42,16 +46,21 @@ function renown_level_individual_cost(level) {
 
 //
 function renown_to_level(renown) {
-    var level = 0;
-    while true {
-        var next_cost = renown_level_individual_cost(level + 1);
-        if renown >= next_cost {
-            renown -= next_cost;
-            level += 1;
+    if renown >= renown_level_total_cost(MAX_RENOWN_LEVEL) {
+        return MAX_RENOWN_LEVEL;
+    }
+
+    var lo = 0;
+    var hi = MAX_RENOWN_LEVEL;
+    while hi - lo > 1 {
+        var mid = (lo + hi) div 2;
+        if renown_level_total_cost(mid) <= renown {
+            lo = mid;
         } else {
-            return level;
+            hi = mid;
         }
     }
+    return lo;
 }
 
 //
@@ -61,6 +70,22 @@ function renown_level_to_rank(level) {
         RENOWN.ranks.count() - 1,
     );
     return RENOWN.ranks.get(rank);
+}
+
+//
+function renown_level_to_quest(level) {
+    switch level {
+        case 10: return "reach_copper_star_town_rank";
+        case 20: return "reach_ruby_star_town_rank";
+        case 30: return "reach_iron_star_town_rank";
+        case 40: return "reach_sapphire_star_town_rank";
+        case 50: return "reach_silver_star_town_rank";
+        case 60: return "reach_emerald_star_town_rank";
+        case 70: return "reach_gold_star_town_rank";
+        case 80: return "reach_diamond_star_town_rank";
+        case 90: return "reach_mistril_star_town_rank";
+        default: return undefined;
+    }
 }
 
 enum RenownEntryType {

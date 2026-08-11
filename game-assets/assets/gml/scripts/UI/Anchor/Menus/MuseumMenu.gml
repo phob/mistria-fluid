@@ -1,6 +1,10 @@
 function MuseumMenu() : AnchorMenu(Menu.Museum) constructor {
 
     function enter_wing_selection(wing_to_hover) {
+        if self.close_requested {
+            return;
+        }
+
         ANCHOR.free_children(self.root);
         self.left_page.disable();
         self.right_page.disable();
@@ -93,7 +97,15 @@ function MuseumMenu() : AnchorMenu(Menu.Museum) constructor {
     }
 
     function enter_wing(wing_key) {
+        if self.close_requested {
+            return;
+        }
+
         ANCHOR.free_children(self.root);
+        ANCHOR.free_children(self.left_header);
+        ANCHOR.free_children(self.left_body);
+        ANCHOR.free_children(self.right_body);
+
         self.left_page.enable();
         self.right_page.enable();
         self.set_pilot.reset();
@@ -113,6 +125,13 @@ function MuseumMenu() : AnchorMenu(Menu.Museum) constructor {
             .set_xy(3, 3)
             .allow_line_breaks()
             .prevent_spillover()
+
+        //
+        //
+        if local_language() == "jpn" {
+            self.description.set_required_padding(2);
+            self.description.set_x(2);
+        }
 
         var reward_title = ANCHOR.text(self.left_header)
             .set_key("misc_local/next_reward")
@@ -268,7 +287,9 @@ function MuseumMenu() : AnchorMenu(Menu.Museum) constructor {
     self.canvas.set_think_callback(function() {
         //
         //
-        if self.left_page.get_enabled() && INPUT.take_press(InputId.MenuBack) {
+        //
+        //
+        if self.canvas.is_unlocked() && self.left_page.get_enabled() && INPUT.take_press(InputId.MenuBack) {
             TANGO.play("SoundEffects/UI/UIPopDown");
             self.lock();
             CHAINS.new_chain()

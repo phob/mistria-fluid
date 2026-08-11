@@ -241,11 +241,11 @@ function InRoom() {
 
 function _InRoom(): __Leaf() constructor {
     run = function(blackboard) {
-        var me = blackboard.get("me");
-        if me != undefined && me.location_position.location_id == CURRENT_LOCATION_ID {
-            return Status.Ok;
-        } else {
+        var npc = blackboard.get("instance");
+        if npc == undefined || !instance_exists(npc){
             return Status.Err;
+        } else {
+            return Status.Ok;
         }
     }
 }

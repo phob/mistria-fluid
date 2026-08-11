@@ -252,6 +252,21 @@ function erase_object_node_data(grid, node) {
                 dyn_grid.auto_feeder = undefined;
             }
 
+            if node.prototype.object_id == ObjectId.JunipersProtectionScroll {
+                ARI.has_protection_scroll = false;
+            }
+
+            if node.prototype.is_crystal_resonator {
+                if grid.dyn_index != undefined {
+                    ARI.dyn_song_overrides[string(grid.dyn_index)] = undefined;
+                } else {
+                    ARI.song_overrides[grid.location_id] = undefined;
+                }
+                if CURRENT_LOCATION_ID == grid.location_id {
+                    MUSIC_PLAYER.refresh();
+                }
+            }
+
             if node.prototype.pet_bed {
                 var idx = array_pos(grid.pet_beds, node);
                 array_delete(grid.pet_beds, idx, 1);

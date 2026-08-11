@@ -59,7 +59,12 @@ object_create(
                     break;
                 case "ari_glow":
                     new_chain().append(LinkId.Ease, new Ease(EaseId.QuartOut, 0, 0.6, 360), function(_, a) {
-                        self.ari_glow_alpha = a;
+                        obj_ari.par.blend = {
+                            src_mode: bm_src_alpha,
+                            dest_mode: bm_one,
+                            color: magic_glow_color(),
+                            alpha: a
+                        };
                     });
                     break;
                 case "start_overlay":
@@ -76,7 +81,7 @@ object_create(
                     });
                     break;
                 case "kill_effects":
-                    self.ari_glow_alpha = 0;
+                    obj_ari.par.blend = undefined;
                     self.juniper_glow_alpha = 0;
                     new_world_chain(self, LocationId.BathhouseBath).append(LinkId.Ease, new Ease(EaseId.QuartOut, 1, 0, 360), function(_, a) {
                         self.overlay_alpha = a;
@@ -107,26 +112,8 @@ object_create(
                 }
             }
 
-            if self.ari_glow_alpha != undefined {
-                gpu_set_extra(UberShaderKind.Flat);
-                var flipper = obj_ari.par.cardinal == Cardinal.West ? -1 : 1;
-
-                var xoff = 0;
-                if flipper == -1 {
-                    xoff = PAR_SURFACE_SIZE;
-                }
-
-                draw_surface_ext(
-                    SurfaceId.PlayerAnimationRuntime,
-                    obj_ari.x + obj_ari.par_offset.x + xoff - SURFACE_OFFSET_X,
-                    obj_ari.y + obj_ari.par_offset.y - SURFACE_OFFSET_Y,
-                    flipper,
-                    1,
-                    magic_glow_color(),
-                    self.ari_glow_alpha
-                );
-
-                gpu_reset_extra();
+            if obj_ari.par.blend != undefined {
+                obj_ari.par.blend.color = color;
             }
 
             var color = magic_glow_color();

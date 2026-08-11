@@ -18,12 +18,9 @@ object_create(
                 self.par.cardinal = Cardinal.South;
                 ARI.animation_assets().apply_to_par(self.par);
                 self.par.set_animation(AnimationName.Idle);
-                self.par.blend = {
-                    src_mode: bm_zero,
-                    dest_mode: bm_src_color,
-                    color: make_color_rgb(75, 66, 81),
-                    alpha: 1.0
-                };
+                self.par.tint = make_color_rgb(75, 66, 81);
+                self.par.perform_outline = make_color_rgb(255, 196, 255);
+                self.par.perform_outline_alpha = 0.9;
             }
 
             self.par_offset = undefined;
@@ -102,27 +99,21 @@ object_create(
         },
         draw: function() {
             //
-            self.par.render_offscreen();
-        
             var ratio = DISPLAY.asset_resize();
             var draw_x = floor((x + obj_ari.par_offset.x) * ratio) / ratio;
             var draw_y = floor((y + obj_ari.par_offset.y) * ratio) / ratio;
             self.par.draw(draw_x, draw_y);
+            var new_stencil = self.par.last_stencil;
+            
+            gpu_set_stencil_operation(StencilOperation.Replace);
+            gpu_set_stencil_test(cmpfunc_equal, new_stencil);
 
             self.star_offset.x += 0.06;
             self.star_offset.y += 0.10;
 
-            shader_set("shd_star_punch_out");
-            shader_set_texture("u_tex", spr_dense_stars);
-            
-            shader_set_uniform_f_array("u_offset", [(self.star_offset.x - self.x) / 128.0, (self.star_offset.y - self.y) / 128.0]);
-            shader_set_uniform_f_array(
-                "u_outline_offset",
-                [
-                    1.0 / surface_get_width(SurfaceId.PlayerAnimationRuntime),
-                    1.0 / surface_get_height(SurfaceId.PlayerAnimationRuntime),
-                ]
-            );
+            gpu_set_extra(UberShaderKind.StarPunchOut);
+            shader_set_texture("u_LutTexture", spr_dense_stars, 0);
+            shader_set_uniform_f_array("u_StarsOffset", [(self.star_offset.x - self.x) / 128.0, (self.star_offset.y - self.y) / 128.0]);
             gpu_set_blendmode_ext(bm_src_alpha, bm_inv_src_color);
             var flipper = self.par.cardinal == Cardinal.West ? -1 : 1;
 
@@ -130,10 +121,10 @@ object_create(
             if flipper == -1 {
                 xoff = PAR_SURFACE_SIZE;
             }
-            draw_surface_ext(SurfaceId.PlayerAnimationRuntime, draw_x + xoff - (SURFACE_OFFSET_X * self.par.scale), draw_y - (SURFACE_OFFSET_Y * self.par.scale), self.par.scale * flipper, self.par.scale, c_white, 1.0);
-
-            shader_reset_to_default();
+            draw_sprite_ext(spr_pixel, 0, draw_x - (PAR_SURFACE_SIZE * 0.5), draw_y - (PAR_SURFACE_SIZE * 0.5), PAR_SURFACE_SIZE, PAR_SURFACE_SIZE, 0, c_white, 1.0);
+            gpu_reset_extra();
             gpu_set_blendmode_ext(bm_src_alpha, bm_inv_src_alpha);
+            gpu_disable_stencil();
 
             self.par.animate(self.par_anim_spd);
         },

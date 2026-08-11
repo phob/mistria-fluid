@@ -97,7 +97,7 @@ object_create(
             }
         },
         draw: function() {
-            draw_sprite_ext_pixel_perfect(
+            draw_sprite_ext(
                 sprite_index,
                 image_index,
                 x,

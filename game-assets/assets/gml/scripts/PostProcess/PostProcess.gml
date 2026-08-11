@@ -127,23 +127,23 @@ function PostProcessor(post_process_track) constructor {
     }
 
     //
-    function draw(surface_to_draw, ratio) {
+    function draw() {
         gpu_disable_blending();
 
         if self.should_post_process {
             gpu_set_srgb_blending(false);
-            shader_set("shd_day_night");
+            gpu_set_extra(UberShaderKind.DayNight);
                 //
                 shader_set_uniform_f_array("u_VividColor", self.vivid_color);
 
                 //
                 shader_set_uniform_f_array("u_Levels", self.levels);
 
-                draw_surface_ext(surface_to_draw, 0.0, 0.0, ratio, ratio, c_white, 1.0);
-            shader_reset_to_default();
+                draw_world_surface(0.0, 0.0, 1.0, 1.0, c_white, 1.0);
+            gpu_reset_extra();
             gpu_set_srgb_blending(true);
         } else {
-            draw_surface_ext(surface_to_draw, 0.0, 0.0, ratio, ratio, c_white, 1.0);
+            surface_blit(SurfaceDirection.WorldToScreen, true);
         }
 
         gpu_enable_blending();

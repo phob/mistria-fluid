@@ -9,7 +9,7 @@ function CreditsMenu(canvas) : AnchorMenu(Menu.Credits) constructor {
     self.credits = fiddle_get("ui/credits");
     self.chain = undefined;
     self.active_credit = undefined;
-    self.special_freeze_signal = false;
+    self.special_freeze_signal = undefined;
     self.freeze_signal = false;
     self.canvas = canvas;
     self.spd = 0;
@@ -80,6 +80,7 @@ function CreditsMenu(canvas) : AnchorMenu(Menu.Credits) constructor {
                 .set_align(Align.Center, Align.Middle)
                 .set_y(-10 + y_mod)
                 .set_text(entry.name)
+                .force_font(fnt_mistria_birdseed)
                 .set_alpha(0)
 
             var credit = ANCHOR.text(self.base)
@@ -87,6 +88,7 @@ function CreditsMenu(canvas) : AnchorMenu(Menu.Credits) constructor {
                 .set_y(10 + y_mod)
                 .set_alpha(0)
                 .set_text(entry.credit)
+                .force_font(fnt_mistria_birdseed)
                 .set_lut(spr_ui_dialogue_font_lut, 9)
 
 
@@ -95,6 +97,7 @@ function CreditsMenu(canvas) : AnchorMenu(Menu.Credits) constructor {
                     .set_align(Align.Center, Align.BottomOut)
                     .set_y(3)
                     .set_text(entry.secondary_credit)
+                    .force_font(fnt_mistria_birdseed)
                     .set_lut(spr_ui_dialogue_font_lut, 15)
             }
 
@@ -145,53 +148,71 @@ function CreditsMenu(canvas) : AnchorMenu(Menu.Credits) constructor {
         self.chain.append(LinkId.Timer, self.beat_len);
     }
 
-    self.chain.append(LinkId.Function, function() {
-        self.additional_root = ANCHOR.positional(self.base)
+    function run_additional_group(title, contributors) {
+        var root = ANCHOR.positional(self.base)
             .set_align(Align.Center, Align.BottomOut)
-            .set_width(300)
-            .set_think_callback(function() {
-                self.additional_root.add_y(self.spd);
-            })
+            .set_width(300);
 
-        ANCHOR.text(self.additional_root)
-            .set_text("Additional Contributions")
-            .set_align(Align.Center, Align.TopIn)
+        self.chain.append(LinkId.Function, function(root, title, contributors) {
 
-        var contributors = self.credits.additional_contributions;
-        var yy = 30;
-        static INC = 22;
-        for (var i = 0; i < array_length(contributors); i++) {
-            var entry = contributors[i];
+            root.set_think_callback(function(root) {
+                root.add_y(self.spd);
+            }, [root])
 
-            var node = ANCHOR.text(self.additional_root)
-                .set_align(Align.LeftIn, Align.TopIn)
-                .set_y(yy)
-                .set_text(entry.credit)
+            ANCHOR.text(root)
+                .set_text(title)
+                .force_font(fnt_mistria_birdseed)
+                .set_align(Align.Center, Align.TopIn)
+                .set_text_align(TextAlign.Center)
 
-            for (var j = 0; j < array_length(entry.names); j++) {
-                ANCHOR.text(self.additional_root)
-                    .set_align(Align.RightIn, Align.TopIn)
+            var yy = 30;
+            static INC = 22;
+            for (var i = 0; i < array_length(contributors); i++) {
+                var entry = contributors[i];
+
+                var node = ANCHOR.text(root)
+                    .set_align(Align.LeftIn, Align.TopIn)
                     .set_y(yy)
-                    .set_text(entry.names[j])
-                    .set_lut(spr_ui_dialogue_font_lut, 9)
+                    .set_text(entry.credit)
+                    .force_font(fnt_mistria_birdseed)
+
+                for (var j = 0; j < array_length(entry.names); j++) {
+                    var credit = ANCHOR.text(root)
+                        .set_align(Align.RightIn, Align.TopIn)
+                        .set_y(yy)
+                        .set_text(entry.names[j])
+                        .force_font(fnt_mistria_birdseed)
+                        .set_lut(spr_ui_dialogue_font_lut, 9)
+
+                    yy += INC;
+                }
 
                 yy += INC;
             }
 
-            yy += INC;
-        }
+            //
+            credit.stop = false;
+            credit.disable_lut();
+            credit.set_think_callback(function(credit, title) {
+                if credit.stop {
+                    return;
+                }
+                if ANCHOR.get_screen_position(credit).y < 200 {
+                    self.special_freeze_signal = title;
+                    credit.stop = true;
+                }
+            }, [credit, title])
 
-        //
-        node.set_think_callback(function(node) {
-            if ANCHOR.get_screen_position(node).y < 200 {
-                self.special_freeze_signal = true;
-            }
-        }, [node])
-    })
+        }, [root, title, contributors])
 
-    self.chain.append(LinkId.Await, function() {
-        return self.special_freeze_signal;
-    });
+        self.chain.append(LinkId.Await, function(title) {
+            return self.special_freeze_signal == title;
+        }, [title]);
+    }
+
+    self.run_additional_group("Additional Contributions", self.credits.additional_contributions);
+    self.run_additional_group("Japanese Localization\n8-4, Ltd.", self.credits.eight_four);
+    self.run_additional_group("Shloc Ltd.", self.credits.shloc);
 
     self.chain.append(LinkId.Function, function() {
         self.special_root = ANCHOR.positional(self.base)
@@ -204,6 +225,7 @@ function CreditsMenu(canvas) : AnchorMenu(Menu.Credits) constructor {
 
         ANCHOR.text(self.special_root)
             .set_text("Special Thanks")
+            .force_font(fnt_mistria_birdseed)
             .set_align(Align.Center, Align.TopIn)
 
         var contributors = self.credits.special_thanks;
@@ -217,6 +239,7 @@ function CreditsMenu(canvas) : AnchorMenu(Menu.Credits) constructor {
                 .set_y(yy)
                 .set_align(align, Align.TopIn)
                 .set_text(entry)
+                .force_font(fnt_mistria_birdseed)
 
             switch align {
                 case Align.LeftIn:
@@ -231,14 +254,16 @@ function CreditsMenu(canvas) : AnchorMenu(Menu.Credits) constructor {
 
         yy += 90;
         var licenses = ANCHOR.text(self.special_root)
-            .set_text(self.credits.licenses_stub)
+            .set_text("Thank you to all our open source projects. Licenses included in the projects.")
+            .force_font(fnt_mistria_birdseed)
             .set_align(Align.Center, Align.TopIn)
             .set_text_align(TextAlign.Center)
             .set_y(yy)
 
         yy += 90;
         var fmod = ANCHOR.text(self.special_root)
-            .set_text(self.credits.fmod_stub)
+            .set_text("Made using FMOD Studio by Firelight Technologies Pty Ltd.")
+            .force_font(fnt_mistria_birdseed)
             .set_align(Align.Center, Align.TopIn)
             .set_text_align(TextAlign.Center)
             .set_y(yy)
@@ -246,21 +271,24 @@ function CreditsMenu(canvas) : AnchorMenu(Menu.Credits) constructor {
         yy += 120;
 
         var top = ANCHOR.text(self.special_root)
-            .set_text(self.credits.final.top)
+            .set_text("Thank you to Yasuhiro Wada & Eric Barone")
+            .force_font(fnt_mistria_birdseed)
             .set_lut(spr_ui_dialogue_font_lut, 15)
             .set_text_align(TextAlign.Center)
             .set_align(Align.Center, Align.TopIn)
             .set_y(yy)
 
         var mid = ANCHOR.text(top)
-            .set_text(self.credits.final.middle)
+            .set_text("For founding the farm-sim genre we love so dearly,\nand inspiring us to make our own contribution.")
             .set_text_align(TextAlign.Center)
+            .force_font(fnt_mistria_birdseed)
             .set_align(Align.Center, Align.BottomOut)
             .set_y(2)
 
         ANCHOR.text(mid)
-            .set_text(self.credits.final.bottom)
+            .set_text("And most of all, thank you for playing!")
             .set_text_align(TextAlign.Center)
+            .force_font(fnt_mistria_birdseed)
             .set_lut(spr_ui_dialogue_font_lut, 9)
             .set_align(Align.Center, Align.BottomOut)
             .set_y(24)

@@ -120,6 +120,7 @@ function save_game(save_path) {
         wallpapers: DECOR.serialize_wallpapers(),
         size_upgrade: home_upgrade_to_string(DECOR.size_upgrade),
         upper_floor: DECOR.upper_floor,
+        home_variant: home_variant_to_string(DECOR.variant),
         items_acquired: serialize_array_bool(ARI.items_acquired, item_id_to_string),
         tutorials_seen: serialize_array_bool(ARI.tutorials_seen, tutorial_to_string),
         items_sold: array_to_struct(ARI.items_sold, item_id_to_string),
@@ -141,6 +142,7 @@ function save_game(save_path) {
         has_seen_ritual_level_today: ARI.has_seen_ritual_level_today,
         has_seen_arena_level_today: ARI.has_seen_arena_level_today,
         has_gossiped_today: ARI.has_gossiped_today,
+        used_object_today: serialize_array_bool(ARI.used_object_today, object_id_to_string),
         date_history: apply_func(clone_value(ARI.date_history), function(v) {
             return {
                 date: date_to_string(v.date),
@@ -149,6 +151,9 @@ function save_game(save_path) {
             };
         }),
         date_unlocks: serialize_array_bool(ARI.date_unlocks, date_to_string),
+        song_unlocks: ARI.song_unlocks,
+        song_overrides: array_to_struct(ARI.song_overrides, location_id_to_string),
+        dyn_song_overrides: ARI.dyn_song_overrides,
         presets: apply_func(ARI.presets.to_array(), function(e) {
             return e.serialize();
         }),
@@ -178,6 +183,7 @@ function save_game(save_path) {
         }),
         secret_narrows: SECRET_NARROWS,
         secret_beach: SECRET_BEACH,
+        secret_tower: SECRET_TOWER,
         has_left_house_today: ARI.has_left_house_today,
         give_magic_key_seed: false,
         last_bed_used: opt_and_then(ARI.last_bed_used, function(v) {
@@ -189,6 +195,8 @@ function save_game(save_path) {
         save_position: serialize_location_position(ARI.save_position),
         wedding_date: ARI.wedding_date,
         proposal_date: ARI.proposal_date,
+        disable_break_ups: ARI.disable_break_ups,
+        disable_break_up_letters: ARI.disable_break_up_letters,
         pending_child: opt_and_then(ARI.pending_child, function(v) {
             return {
                 utero: utero_to_string(v.utero),

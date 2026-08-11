@@ -6,9 +6,8 @@ object_create(
         create: function() {
             self.depth = get_shadow_depth() + 1 + (real(self.id) % 32);
 
-            self.tarball = TarballBuilder(self.x, self.y, 0, 0, self.damage)
+            self.tarball = TarballBuilder(self.x - 16, self.y - 16, 32, 32, self.damage)
                 .set_acid()
-                .set_mask_index(self.mask_index)
                 .set_provenance(self.owner.monster_id, self.owner.stats_entry)
                 .gen();
 

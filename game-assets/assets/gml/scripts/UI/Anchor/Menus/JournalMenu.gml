@@ -86,14 +86,14 @@ function JournalMenu() : AnchorMenu(Menu.Journal) constructor {
 
     //
     function check_for_cosmetic_alert() {
-        var ari = is_menu_room(room())
-            ? ANCHOR.get_menu(Menu.Title).ari_data
-            : ARI;
+        if is_menu_room(room()) {
+            return;
+        }
 
         var any = false;
-        var unlocked = ari.cosmetic_unlocks.keys();
+        var unlocked = ARI.cosmetic_unlocks.keys();
         for (var i = 0; i < array_length(unlocked); i++) {
-            if !ari.seen_cosmetics.contains(unlocked[i]) {
+            if !ARI.seen_cosmetics.contains(unlocked[i]) {
                 any = true;
                 break;
             }
@@ -162,11 +162,11 @@ function JournalMenu() : AnchorMenu(Menu.Journal) constructor {
 function title_for_journal(local_key, header, icon_sprite) {
     var title = ANCHOR.text(header)
         .set_align(Align.Center, Align.Middle)
-        .set_y(1)
         .set_key(local_key)
-        .set_line_height(DEFAULT_LINE_HEIGHT - 2)
         .prevent_spillover()
         .set_lut(COMMON_LUT, CommonLutIndex.Header);
+
+    //
 
     if icon_sprite != undefined {
         title.board_set(

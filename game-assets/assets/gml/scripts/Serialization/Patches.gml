@@ -1,17 +1,45 @@
 function apply_save_patches(current_version, goal_version, loader) {
-    //
-    //
     var saver = new RustSaver(loader.save_path, loader.vault_id);
 
-    //
-    while current_version.major != goal_version.major {
-        current_version.major = 1;
-        current_version.minor = 0;
-        current_version.patch = 0;
+    if current_version.major != 1 {
+        patch_early_access_saves(current_version, goal_version, loader, saver);
     }
 
     //
     while current_version.minor != goal_version.minor {
+        switch current_version.minor {
+            default:
+                //
+                break;
+        }
+    }
+
+    //
+    while current_version.patch != goal_version.patch {
+        switch current_version.patch {
+            default:
+                current_version.patch += 1;
+                break;
+        }
+    }
+
+    //
+    current_version.pre = goal_version.pre;
+
+    var game_stats = loader.load_file("game_stats");
+    patch_game_stats(game_stats);
+    saver.save_file("game_stats", game_stats);
+
+    var player = loader.load_file("player");
+    patch_default_content(player);
+    saver.save_file("player", player);
+
+    return saver;
+}
+
+//
+function patch_early_access_saves(current_version, goal_version, loader, saver) {
+    while current_version.major != 1 {
         switch current_version.minor {
             //
             case 0:
@@ -974,43 +1002,141 @@ function apply_save_patches(current_version, goal_version, loader) {
                 current_version.minor += 1;
                 current_version.patch = 0;
                 break;
+            case 16:
+                while current_version.patch < 4 {
+                    switch current_version.patch {
+                        case 0:
+                        case 1:
+                            //
+                            var player = loader.load_file("player");
+                            replace_perk_reference(player, "playtime_one");
+                            saver.save_file("player", player);
+                            current_version.patch += 1;
+                            break;
+                        default:
+                            //
+                            current_version.patch += 1;
+                            break;
+                    }
+                }
+
+                replace_item_reference("rock_clod_garden_purple", loader, saver);
+
+                var player = loader.load_file("player");
+                var game_stats = loader.load_file("game_stats");
+                var gamedata = loader.load_file("gamedata");
+                var npcs = loader.load_file("npcs");
+
+                //
+                //
+                //
+                var eng = player.pronouns.eng;
+                player.pronouns = default_pronouns();
+                player.pronouns.eng = eng;
+
+                //
+                game_stats.gross_essence = player.stats.essence;
+                var toml_data = fiddle_get_directory("ui/skill_menu");
+                var keys = struct_get_names(toml_data);
+                var a = 0;
+                for (var i = 0; i < array_length(keys); i++) {
+                    var prototype = toml_data[keys[i]];
+                    for (var j = 0; j < 5; j++) {
+                        var tier = prototype[$ fmt("tier_{}", j + 1)];
+                        if tier == undefined {
+                            continue;
+                        }
+                        for (var k = 0; k < array_length(tier); k++) {
+                            var entry = tier[k];
+                            if entry["perk"] != undefined && array_contains(player.perks, entry.perk) {
+                                game_stats.gross_essence += entry["essence"] ?? 0;
+                            }
+                        }
+                    }
+                }
+
+                //
+                static YEAR_ONE_PER_SEASON = 25000;
+                static YEAR_TWO_PER_SEASON = 70000;
+                static YEAR_PLUS_PER_SEASON = 200000;
+                var time = int64(real(gamedata.date));
+                var season_count = time / seasons(1);
+                var year_one_earnings = min(4, season_count) * YEAR_ONE_PER_SEASON;
+                var year_two_earnings = max(0, season_count - 4) * YEAR_ONE_PER_SEASON;
+                var additional_earnings = max(0, season_count - 8) * YEAR_PLUS_PER_SEASON;
+                var gold = round(year_one_earnings + year_two_earnings + additional_earnings);
+                array_push(
+                    game_stats.income,
+                    {
+                        type: "ea_compensation",
+                        amount: gold,
+                        day: 0,
+                    }
+                );
+
+                //
+                //
+                //
+                var keys = struct_get_names(npcs);
+                game_stats.gifts_given = [];
+                for (var i = 0; i < array_length(keys); i++) {
+                    var npc_data = npcs[keys[i]];
+                    var prototype = NPC_PROTOTYPES[string_to_npc_id(keys[i])];
+                    var gave_any_liked = false;
+                    var gave_any_loved = false;
+                    for (var j = 0; j < array_length(npc_data.known_gift_preferences); j++) {
+                        var pref = string_to_item_id(npc_data.known_gift_preferences[j]);
+                        var liked = prototype.loved_gifts.contains(pref);
+                        var loved = prototype.liked_gifts.contains(pref);
+                        gave_any_liked |= liked;
+                        gave_any_loved |= loved;
+                        if liked || loved {
+                            repeat 2 {
+                                array_push(game_stats.gifts_given, {
+                                    npc: keys[i],
+                                    gift: npc_data.known_gift_preferences[j],
+                                    desire: liked ? "liked" : "loved",
+                                    day: 0,
+                                });
+                            }
+                        }
+                    }
+
+                    //
+                    var four_hearts = fiddle_get("misc/npc_heart_point_table")[3];
+                    if npc_data.heart_points >= four_hearts && gave_any_liked && gave_any_loved {
+                        gamedata.t2_world_facts[format("gave_{}_good_birthday_gift", keys[i])] = true;
+                    }
+                }
+
+                //
+                //
+                //
+                //
+                for (var i = 0; i < array_length(game_stats.bedtimes); i++) {
+                    var bedtime = game_stats.bedtimes[i];
+                    if string_pos("1:5", bedtime) != 0 && string_pos("am", bedtime) != undefined {
+                        gamedata.t2_world_facts["slept_last_minute"] = true;
+                        break;
+                    }
+                }
+
+                //
+                gamedata.t2_world_facts.has_ever_fainted = gamedata.t2_world_facts["cutscene_seen_dying"] == true;
+
+                saver.save_file("player", player);
+                saver.save_file("game_stats", game_stats);
+                saver.save_file("gamedata", gamedata);
+                saver.save_file("npcs", npcs);
+
+                current_version.major = 1;
+                current_version.minor = 0;
+                current_version.patch = 0;
+                break;
 
             default: impossible("unhandled minor version in saves: {} of {SemVer}", current_version.minor, current_version);
         }
     }
-
-    //
-    while current_version.patch != goal_version.patch {
-        switch current_version.patch {
-            case 0:
-            case 1:
-            case 2:
-            case 3:
-                //
-                var player = loader.load_file("player");
-                replace_perk_reference(player, "playtime_one");
-                saver.save_file("player", player);
-                current_version.patch += 1;
-                break;
-            default:
-                //
-                current_version.patch += 1;
-                break;
-        }
-    }
-
-    //
-    current_version.pre = goal_version.pre;
-
-    var game_stats = loader.load_file("game_stats");
-    patch_game_stats(game_stats);
-    saver.save_file("game_stats", game_stats);
-
-    var player = loader.load_file("player");
-    patch_default_content(player);
-    saver.save_file("player", player);
-
-    return saver;
 }
 
 function apply_settings_patches(current_version, goal_version, settings) {
@@ -1018,12 +1144,36 @@ function apply_settings_patches(current_version, goal_version, settings) {
     var old_current_version = clone_value(current_version);
 
     //
-    while current_version.major != goal_version.major {
-        crash("ladies and gentlemen, the vertical slice");
+    while current_version.major != 1 {
+        patch_early_access_settings(current_version, goal_version, settings);
     }
 
     //
     while current_version.minor != goal_version.minor {
+        switch current_version.minor {
+            default: break;
+        }
+        current_version.minor += 1;
+        current_version.patch = 0;
+    }
+
+    //
+    while current_version.patch != goal_version.patch {
+        switch current_version.patch {
+            default: break;
+        }
+
+        current_version.patch += 1;
+    }
+
+    trace("Transforming settings from version: {SemVer} to {SemVer}", old_current_version, current_version);
+
+    return settings;
+}
+
+function patch_early_access_settings(current_version, goal_version, settings) {
+    //
+    while current_version.major != 1 {
         switch current_version.minor {
             case 0:
             case 1:
@@ -1081,6 +1231,14 @@ function apply_settings_patches(current_version, goal_version, settings) {
             case 14:
             case 15:
                 break;
+            case 16:
+                //
+                //
+                current_version.major = 1;
+                current_version.minor = 0;
+                current_version.patch = 0;
+                return;
+
             default: impossible("unhandled minor version in settings: {} of {SemVer}", current_version.minor, current_version);
         }
 
@@ -1098,9 +1256,6 @@ function apply_settings_patches(current_version, goal_version, settings) {
         }
     }
 
-    trace("Transforming settings from version: {SemVer} to {SemVer}", old_current_version, current_version);
-
-    return settings;
 }
 
 function patch_save(loader) {

@@ -70,7 +70,7 @@ function MinesMenu() : AnchorMenu(Menu.Mines) constructor {
 
     self.root_one = ANCHOR.positional(self.backplate)
         .set_size(9, 14)
-        .set_xy(28, 4)
+        .set_xy(28, 3)
     self.number_one = ANCHOR.text(self.root_one)
         .set_text("0")
         .set_align(Align.Center, Align.Middle)
@@ -79,7 +79,7 @@ function MinesMenu() : AnchorMenu(Menu.Mines) constructor {
 
     self.root_two = ANCHOR.positional(self.backplate)
         .set_size(9, 14)
-        .set_xy(38, 4)
+        .set_xy(38, 3)
     self.number_two = ANCHOR.text(self.root_two)
         .set_text("0")
         .set_align(Align.Center, Align.Middle)
@@ -88,7 +88,7 @@ function MinesMenu() : AnchorMenu(Menu.Mines) constructor {
 
     self.root_three = ANCHOR.positional(self.backplate)
         .set_size(9, 14)
-        .set_xy(48, 4)
+        .set_xy(48, 3)
     self.number_three = ANCHOR.text(self.root_three)
         .set_text("1")
         .set_align(Align.Center, Align.Middle)

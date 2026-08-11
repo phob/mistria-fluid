@@ -8,6 +8,7 @@ enum ActivityKind {
     TrellisPoint,
     CustomProgramming,
     GridObject,
+    Wander,
     LEN,
 }
 
@@ -133,50 +134,61 @@ function ActivityHandler(npc) constructor {
             if !self.npc_fulfills_activity(activity.id) {
                 //
                 array_push(self.failure_cache, activity.id);
-                return;
-            }
-            //
-            //
-            if array_is_empty(activity.trellis_points) && array_is_empty(activity.object_ids) {
-                self.activity = activity;
-                self.begin_activity();
             } else {
                 //
-                self.select_activity_destination(activity);
-                if self.target_location != undefined {
+                //
+                if array_is_empty(activity.trellis_points)
+                    && array_is_empty(activity.object_ids)
+                    && activity.kind != ActivityKind.Wander
+                {
                     self.activity = activity;
-                    self.start_time = time;
-
+                    self.begin_activity();
+                } else {
                     //
-                    if self.target_node != undefined && self.npc.location_position.location_id != CURRENT_LOCATION_ID {
-                        self.npc.location_position = self.target_location;
-                        self.begin_activity();
-                    } else {
-                        //
-                        self.state = ActivityState.Traveling;
-                        self.npc.brain.blackboard.set("next_location", self.target_location);
-                    }
-                } else if self.routine != undefined {
-                    array_push(self.failure_cache, activity.id);
+                    self.select_activity_destination(activity);
+                    if self.target_location != undefined {
+                        self.activity = activity;
+                        self.start_time = time;
 
-                    if array_length(self.failure_cache) == array_length(self.routine.activities) {
                         //
-                        //
-                        //
-                        //
-                        //
-                        self.reset();
+                        if self.target_node != undefined
+                            && (self.npc.location_position.location_id != CURRENT_LOCATION_ID || IN_NPC_TIME_JUMP)
+                        {
+                            self.npc.location_position = self.target_location;
+                            self.begin_activity();
+                        } else {
+                            //
+                            self.state = ActivityState.Traveling;
+                            self.npc.brain.blackboard.set("next_location", self.target_location);
+                        }
+                    } else {
+                        array_push(self.failure_cache, activity.id);
                     }
                 }
+            }
+        }
+
+        if self.state == ActivityState.Inactive
+            && self.routine != undefined
+            && array_is_superset_of(self.failure_cache, self.routine.activities)
+        {
+            if self.routine.wander_on_failure {
+                self.request_activity(Activity.Wander);
+            } else {
+                self.reset();
             }
         }
     }
 
     //
     function clear_activity() {
+        if self.state == ActivityState.Traveling {
+            self.npc.brain.blackboard.remove("next_location");
+        }
         self.state = ActivityState.Inactive;
         self.npc.set_animation(self.npc.is_seated() ? "sit" : "idle");
         T2R.write(format("{NpcId}_activity", self.npc.id), undefined);
+        T2R.write(format("{NpcId}_activity_object", self.npc.id), undefined);
         self.activity = undefined;
         self.target_location = undefined;
         self.target_node = undefined;
@@ -216,11 +228,34 @@ function ActivityHandler(npc) constructor {
     //
     function begin_activity(time) {
         time = time == undefined ? CLOCK.time : time;
+
+        //
+        var required_cardinal = undefined;
+        if self.target_node != undefined {
+            var this = self.target_node.prototype.activities[self.target_activity_index];
+            required_cardinal = this.direction ?? self.target_node.cardinal_index;
+            self.npc.set_cardinality(required_cardinal);
+            T2R.write(format("{NpcId}_activity_object", self.npc.id), object_id_to_string(self.target_node.object_id));
+        }
+
         if !self.activity.animations.is_empty() {
-            var animation = self.activity.animations.find_value(function(e) {
-                return self.npc.can_perform_animation(e);
-            });
-            self.npc.set_animation(animation);
+            var choice = undefined;
+            var valid_options = 0;
+            for (var i = 0; i < self.activity.animations.count(); i++) {
+                var animation = self.activity.animations.get(i);
+                if self.npc.can_perform_animation(animation, required_cardinal) {
+                    valid_options += 1;
+                    if irandom_range(1, valid_options) == 1 {
+                        choice = animation;
+                    }
+                }
+            }
+
+            choice = choice ?? "idle";
+
+            assert_defined(choice, "Failed to find any valid animation for a greenlit activity!");
+
+            self.npc.set_animation(choice);
         }
 
         T2R.write(format("{NpcId}_activity", self.npc.id), activity_to_string(self.activity.id));
@@ -230,13 +265,6 @@ function ActivityHandler(npc) constructor {
         var range = self.activity.duration_range ?? [I32_MAX, I32_MAX];
         self.end_time = time + minutes(irandom_range(range[0], range[1]));
         self.state = ActivityState.Active;
-
-        //
-        if self.target_node != undefined {
-            var this = self.target_node.prototype.activities[self.target_activity_index];
-            self.npc.set_cardinality(
-                this.direction ?? self.target_node.cardinal_index);
-        }
 
         //
         self.npc.brain_dead = !self.needs_brain();
@@ -260,6 +288,8 @@ function ActivityHandler(npc) constructor {
                 if irandom_range(1, valid_options) == 1 {
                     choice = activity;
                 }
+            } else {
+                array_push(self.failure_cache, activity);
             }
         }
 
@@ -322,6 +352,7 @@ function ActivityHandler(npc) constructor {
                 static SEARCH_GRID = function(activity, nodes, location_id) {
                     static MAX_ATTEMPTS = 100;
                     var choice = undefined;
+                    var valid_options = 0;
 
                     var attempts = 0;
                     repeat min(MAX_ATTEMPTS, nodes.count() * nodes.count()) {
@@ -348,6 +379,22 @@ function ActivityHandler(npc) constructor {
                                     continue;
                                 }
 
+                                if node.child_grid != undefined {
+                                    var has_children = false;
+                                    for (var xx = 0; xx < node.child_grid.dims.x; xx++) {
+                                        for (var yy = 0; yy < node.child_grid.dims.y; yy++) {
+                                            var cell = node.child_grid.node_index_for_cell(xx, yy);
+                                            if node.child_grid.node_object_id[cell] != undefined {
+                                                has_children = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    if has_children {
+                                        continue;
+                                    }
+                                }
+
                                 if location_id == CURRENT_LOCATION_ID {
                                     var test_path = PATHFINDING.calculate_local_path(
                                         self.npc.location_position.pos.x,
@@ -362,12 +409,14 @@ function ActivityHandler(npc) constructor {
                                     }
                                 }
 
-                                choice = {
-                                    target_node: node,
-                                    target_activity_index: j,
-                                    target_location: destination,
-                                };
-                                break;
+                                valid_options += 1;
+                                if irandom_range(1, valid_options) == 1 {
+                                    choice = {
+                                        target_node: node,
+                                        target_activity_index: j,
+                                        target_location: destination,
+                                    };
+                                }
                             }
                         }
 
@@ -382,8 +431,11 @@ function ActivityHandler(npc) constructor {
                 var selection = undefined;
 
                 //
-                if self.npc.location_position.location_id == CURRENT_LOCATION_ID {
-                    selection = SEARCH_GRID(activity, GRID.activity_nodes, CURRENT_LOCATION_ID);
+                var location_target = self.npc.brain.blackboard.try_take("forced_location");
+                if self.npc.location_position.location_id == CURRENT_LOCATION_ID || location_target != undefined  {
+                    location_target ??= CURRENT_LOCATION_ID;
+                    var grid_target = GRIDS[location_target];
+                    selection = SEARCH_GRID(activity, grid_target.activity_nodes, location_target);
                 } else {
                     var needle_lid = self.npc.at_farm()
                         ? npc.location_position.location_id
@@ -398,6 +450,10 @@ function ActivityHandler(npc) constructor {
                     for (var i = 0; i < array_length(neighbors); i++) {
                         var lid = neighbors[i];
                         if lid == CURRENT_LOCATION_ID {
+                            continue;
+                        }
+
+                        if lid == LocationId.Farm && (!is_between(CLOCK.time, hours(8), hours(11)) || WEATHER.is_inclement()) {
                             continue;
                         }
 
@@ -440,7 +496,31 @@ function ActivityHandler(npc) constructor {
                     return true;
                 }
                 return false;
+            case ActivityKind.Wander:
+                static MAX_ATTEMPTS = 50;
+                var grid = GRIDS[self.npc.location_position.location_id];
+                var winner = undefined;
+                var winner = player_home_random_position(self.npc.location_position.location_id);
 
+                //
+                //
+                //
+                if winner != undefined {
+                    if self.npc.location_position.location_id == CURRENT_LOCATION_ID {
+                        var test_path = PATHFINDING.calculate_local_path(
+                            self.npc.location_position.pos.x,
+                            self.npc.location_position.pos.y,
+                            winner.x,
+                            winner.y,
+                        );
+
+                        if test_path == undefined {
+                            return false;
+                        }
+                    }
+                    self.target_location = LocationPosition(grid.location_id, winner);
+                }
+                return false;
             default: impossible("Unexpected ActivityKind: {ActivityKind}", activity.kind);
         }
     }
@@ -451,7 +531,7 @@ function ActivityHandler(npc) constructor {
         var data = ACTIVITIES.get(activity);
         var is_custom = data.kind == ActivityKind.CustomProgramming;
         var animation_valid = is_custom || data.animations.any(function(e) {
-            return self.npc.can_perform_animation(e);
+            return self.npc.can_perform_animation(e, undefined, true);
         });
         var vendor_req_passed = true;
         if data.required_vendor != undefined {

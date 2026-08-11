@@ -17,7 +17,7 @@ object_create(
             }
 
             var spr = self.node.prototype.animal_toy.extra_renderer.inactive;
-            if self.node.animal_count >= 2 {
+            if self.node.animal_count > 0 {
                 spr = self.node.prototype.animal_toy.extra_renderer.active;
             }
             draw_sprite(spr, self.node.renderer.image_index, self.node.renderer.x, self.node.renderer.y);

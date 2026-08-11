@@ -1,13 +1,11 @@
 #macro CI (environment_get_variable("RUNNER_NAME") != undefined)
 #macro FRAME_TIME 0.016666667
-#macro USER_OS_NAME (os_type == os_windows ? environment_get_variable("USERNAME") : environment_get_variable("USER"))
-#macro ON_WINDOWS (os_type == os_windows)
-#macro ON_MAC (os_type == os_macosx)
-#macro ON_LINUX (os_type == os_linux)
-#macro ON_CONSOLE (ON_XBOX || ON_PLAYSTATION || ON_SWITCH || steam_on_deck())
-#macro ON_XBOX (os_type == os_gdk || os_type == os_xboxseriesxs)
-#macro ON_PLAYSTATION (os_type == os_ps4 || os_type == os_ps5)
-#macro ON_SWITCH (os_type == os_switch)
+#macro USER_OS_NAME (os_type == "windows" ? environment_get_variable("USERNAME") : environment_get_variable("USER"))
+#macro ON_WINDOWS (os_type == "windows")
+#macro ON_MAC (os_type == "macos")
+#macro ON_LINUX (os_type == "linux")
+#macro ON_CONSOLE (ON_SWITCH || steam_on_deck())
+#macro ON_SWITCH (os_type == "switch")
 #macro I32_MAX int64(0x7FFFFFFF)
 #macro U32_MAX int64(0xFFFFFFFF)
 #macro SQRT_2 1.4142
@@ -38,13 +36,12 @@ global.__from_game = false;
 #macro DISPLAY_INVALID_SAVE_POPUP global.__display_invalid_save_popup
 global.__display_invalid_save_popup = false;
 
+#macro DISPLAY_BETA_LANGUAGE_WARNING global.__display_beta_language_warning
+DISPLAY_BETA_LANGUAGE_WARNING = false;
+
 #macro TEST_SUITE global.__test_suite
 TEST_SUITE = cli_test_input() != undefined;
 
-//
-function surface_reset_target() {
-    surface_set_target(SurfaceId.Staging);
-}
 
 function gpu_reset_scissor(scissor) {
     if scissor == undefined {

@@ -52,7 +52,7 @@ function InfoToastsMenu() : AnchorMenu(Menu.InfoToasts) constructor {
                 .set_align(Align.LeftIn, Align.Middle)
             )
             .board_set("text", ANCHOR.text(node)
-                .set_xy(text_x, 1)
+                .set_x(text_x)
                 .set_key(message)
                 .set_max_width(max_text_width)
                 .set_lut(COMMON_LUT)

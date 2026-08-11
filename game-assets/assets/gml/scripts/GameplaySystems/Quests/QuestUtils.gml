@@ -14,6 +14,7 @@ enum QuestCategory {
     Story,
     Crown,
     TaliChallenge,
+    StillwellChallenge,
     Heart,
     Fetch,
     LEN
@@ -225,6 +226,38 @@ function available_tali_challenge() {
     }
 }
 
+function available_stillwell_challenge() {
+    var last_index = undefined;
+    for (var i = array_length(STILLWELL_CHALLENGES) - 1; i >= 0; i--) {
+        var quest = STILLWELL_CHALLENGES[i];
+        if QUEST_LOG.active.contains_key(quest) {
+            return undefined; //
+        }
+        if QUEST_LOG.completed.contains(quest) && QUEST_LOG.completion_timestamps.get(quest) < CALENDAR.time {
+            last_index = i;
+            break;
+        }
+    }
+
+    //
+    //
+    var offer = undefined;
+    if last_index == undefined {
+        offer = STILLWELL_CHALLENGES[0];
+    } else if (last_index + 1) < array_length(STILLWELL_CHALLENGES) {
+        offer = STILLWELL_CHALLENGES[last_index + 1];
+    }
+
+    //
+    if offer != undefined
+        && !QUEST_LOG.active.contains_key(offer)
+        && !QUEST_LOG.completed.contains(offer)
+    {
+        return offer;
+    } else {
+        return undefined;
+    }
+}
 
 enum GatherDropChance {
     Harvest,

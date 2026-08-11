@@ -358,8 +358,15 @@ object_create(
                         })
                         .step(function() {
                             owner.dir = point_direction(owner.x, owner.y, owner.original_spawn_pos.x, owner.original_spawn_pos.y);
-                            owner.move.x = lengthdir_x(owner.config.flee_speed, owner.dir);
-                            owner.move.y = lengthdir_y(owner.config.flee_speed, owner.dir);
+
+                            if point_distance(owner.x, owner.y, owner.original_spawn_pos.x, owner.original_spawn_pos.y) < 2 {
+                                owner.x = owner.original_spawn_pos.x;
+                                owner.y = owner.original_spawn_pos.y;
+                            } else {
+                                owner.move.x = lengthdir_x(owner.config.flee_speed, owner.dir);
+                                owner.move.y = lengthdir_y(owner.config.flee_speed, owner.dir);
+                            }
+
                             if owner.image_index >= 3 {
                                 owner.move.set_zero();
 
@@ -459,9 +466,8 @@ object_create(
             push_from(obj_ari, self.config.pushed_radius, self.config.push_force * sqrt(obj_ari.move.sqrd_magnitude()));
             movement_and_collide(par_monster);
 
-            monster_outside_bounds(x, y, self);
-
             self.flee_timer -= 1;
+            monster_outside_bounds(x, y, self);
         },
         step_end: function() {
             if game_paused() {

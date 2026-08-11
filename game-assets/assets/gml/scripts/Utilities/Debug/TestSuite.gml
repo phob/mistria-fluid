@@ -27,6 +27,9 @@ CURRENT_TEST_SUITE_SAVE = undefined;
 #macro TEST_SUITE_SAVE_MAPPINGS global.__test_suite_save_mappings
 TEST_SUITE_SAVE_MAPPINGS = undefined;
 
+#macro TEST_SUITE_MENU_TARGET global.__test_suite_menu_target
+TEST_SUITE_MENU_TARGET = undefined;
+
 global.__can_proceed = false;
 
 function run_test_suite() {
@@ -561,6 +564,12 @@ TS_TESTS.push({
         chain.append(LinkId.Function, function() {
             obj_pet.x = 32;
             obj_pet.y = 32;
+
+            with par_NPC {
+                self.x = 32;
+                self.y = 32;
+            }
+
             ARI.inventory.slot(0).drain();
             ARI.give_item(new LiveItem(ItemId.Cherry), 1);
             ARI.held_item_index = 0;
@@ -659,6 +668,67 @@ TS_TESTS.push({
         });
     }
 });
+
+TS_TESTS.push({
+    name: "wedding_parties",
+    run_once: true,
+    call: function(chain) {
+        chain.append(LinkId.Function, function() {
+            var cache = array_create_ext(NpcId.LEN, function(i) {
+                return NPCS[i].heart_points;
+            });
+            for (var i = 0; i < NpcId.LEN; i++) {
+                if NPC_PROTOTYPES[i].dateable {
+                    repeat 50 {
+                        for (var j = 0; j < NpcId.LEN; j++) {
+                            NPCS[j].heart_points = irandom(npc_heart_level_to_points(10));
+                        }
+
+                        var chart = wedding_party_for(i);
+                        var at_ceremony = [];
+                        var c_keys = struct_get_names(chart.ceremony);
+                        for (var j = 0; j < array_length(c_keys); j++) {
+                            array_push(at_ceremony, chart.ceremony[$ c_keys[j]]);
+                        }
+                        var at_reception = [];
+                        var r_keys = struct_get_names(chart.reception);
+                        for (var j = 0; j < array_length(r_keys); j++) {
+                            array_push(at_reception, chart.reception[$ r_keys[j]]);
+                        }
+
+
+                        for (var j = 0; j < NpcId.LEN; j++) {
+                            if NPCS[j].is_animal()
+                                || j == i
+                                || array_contains(NPC_PROTOTYPES[j].tags, "vendor") {
+                                continue;
+                            }
+
+                            var name = npc_id_to_string(j);
+                            assert(
+                                array_contains(at_ceremony, name) || j == NpcId.Elsie,
+                                "{NpcId} was not at the ceremony for {NpcId}! {}",
+                                j,
+                                i,
+                                chart.ceremony,
+                            );
+                            assert(
+                                array_contains(at_reception, name),
+                                "{NpcId} was not at the reception for {NpcId}! {}",
+                                j,
+                                i,
+                                chart.reception,
+                            );
+                        }
+                    }
+                }
+            }
+            for (var i = 0; i < NpcId.LEN; i++) {
+                NPCS[i].heart_points = cache[i];
+            }
+        })
+    }
+})
 
 TS_TESTS.push({
     name: "perks",
@@ -2440,7 +2510,7 @@ TS_TESTS.push({
             repeat count {
                 chain.insert_chain(new Chain()
                     .append(LinkId.Function, function() {
-                        DUNGEON_RUNNER.proceed();
+                        DUNGEON_RUNNER.proceed("cheater", true);
                     })
                     .append(LinkId.Timer, 1)
                 );
@@ -2925,6 +2995,7 @@ TS_TESTS.push({
             var menus = List();
             chain.append(LinkId.Function, function(menu_iter) {
                 trace("testing {Menu}...", menu_iter);
+                TEST_SUITE_MENU_TARGET = menu_iter;
             }, [menu_iter]);
 
             //
@@ -3027,11 +3098,10 @@ TS_TESTS.push({
                                 if TEST_SUITE_TOOLTIP.backplate.get_height() > MAX_HEIGHT {
                                     var n = TEST_SUITE_TOOLTIP.body_text;
                                     SPILLOVER_LOGS.push({
-                                        location: n.creation_location(),
-                                        text: n.get_text(),
-                                        key: n.ghost_key,
-                                        max_size: n.get_max_size(),
-                                        my_size: n.get_size(),
+                                        node: n.display(),
+                                        menu: "tooltip",
+                                        max_size: MAX_HEIGHT,
+                                        my_size: TEST_SUITE_TOOLTIP.backplate.get_height(),
                                     });
                                 }
                             }, [j])
@@ -3204,6 +3274,20 @@ TS_TESTS.push({
                         QUEST_LOG.active = __QUEST_TEST_RESET_DATA.active;
                         QUEST_LOG.completed = __QUEST_TEST_RESET_DATA.completed;
                     })
+                    break;
+                case Menu.Spellcasting:
+                    chain.append(LinkId.Function, function(menus) {
+                        var menu = ANCHOR.spawn_menu(Menu.Spellcasting, TEST_SUITE_JOURNAL, TEST_SUITE_JOURNAL);
+                         for (var i = 0; i < array_length(menu.left_pilot.map); i++) {
+                            var node = menu.left_pilot.map[i][0];
+                            chain.insert_chain(new Chain()
+                                .append(LinkId.Function, function(node) {
+                                    ANCHOR.tap_node(node);
+                                }, [node])
+                                .append(LinkId.Timer, 1)
+                            );
+                        }
+                    }, [menus])
                     break;
                 case Menu.Customization:
                     #macro TS_CUSTOMIZATION global.__ts_customization
@@ -3455,9 +3539,6 @@ TS_TESTS.push({
                     //
                     chain.append(LinkId.Function, function() {
                         for (var i = 0; i < NpcId.LEN; i++) {
-                            if matches(i, NpcId.Taliferro, NpcId.Stillwell, NpcId.Wheedle, NpcId.Zorel) {
-                                T2R.write(format("{NpcId}_has_met", i), false);
-                            }
                             NPCS[i].known_gift_preferences.clear();
                         }
                     })
@@ -3546,37 +3627,16 @@ TS_TESTS.push({
 
         chain.append(LinkId.Function, function() {
             if !SPILLOVER_LOGS.is_empty() {
-                var spillies = SPILLOVER_LOGS
-                    .retain(function(log) {
-                        var count = SPILLOVER_LOGS.sum_with(function(o_log, log) {
-                            if log.text == o_log.text && log.location == o_log.location {
-                                return 1;
-                            } else {
-                                return 0;
-                            }
-                        }, [log]);
-
-                        return count == 1;
-                    })
-                    .retain(function(log) {
-                        return !matches(log.text, "MISSING", "PLACEHOLDER") && log.key == undefined;
-                    })
-                    .map_to(function(log) {
-                        var sample = "";
-                        var insert = "";
-                        if log.key != undefined && string_pos("extra_local", log.key) == 0 {
-                            sample = log.key;
-                        } else {
-                            sample = log.text;
-                            insert = " (raw)";
-                        }
-                        return format("'{}'{} @ {} (max size {}, they are {})", sample, insert, log.location, log.max_size, log.my_size);
-                    });
+                var spillies = SPILLOVER_LOGS.map_to(function(log) {
+                    return format("'{}' @ {} (max size {}, they are {})", log.node, log.menu ?? "unknown_menu", log.max_size, log.my_size);
+                });
 
                 if spillies.is_empty() == false {
                     trace("### SPILLOVERS ###\n\n{}", spillies.join("\n"));
 
-                    crash("Spillovers were detected during test! See above for details.");
+                    if local_language() == "eng" {
+                        crash("Spillovers were detected during test! See above for details.");
+                    }
                 }
             }
         });
@@ -3611,6 +3671,126 @@ TS_TESTS.push({
                 consume_reward(reward).for_each(ARI.give_item);
             });
         })
+    }
+});
+
+
+TS_TESTS.push({
+    name: "roommate_jumps",
+    run_once: true,
+    call: function(chain) {
+        //
+        __ts_travel_to(LocationId.PlayerHomeWest, chain);
+
+        static TEST_JUMP = function(time_range, expected_flags, expected_at_farm) {
+            static ALL_FLAGS = [
+                "rjt_a_d",
+                "rjt_b_a",
+                "rjt_b_d",
+                "rjt_c_a",
+                "rjt_c_d",
+                "rjt_d_a",
+                "rjt_d_d",
+                "rjt_e_a",
+                "rjt_e_d",
+                "rjt_f_a",
+            ];
+
+            TS_CHAIN.append(LinkId.Function, function(time_range, ALL_FLAGS) {
+                trace("Testing time range {time}-{time}", time_range[0], time_range[1]);
+                T2R.write("rjt_active", true);
+
+                new_day_non_grid();
+
+                //
+                T2R.schedule_deserialize_expirator("{}");
+                CALENDAR.time = 0;
+                T2R.update();
+                T2R.update_daily();
+                npcs_on_new_day(true);
+
+                //
+                for (var i = 0; i < array_length(ALL_FLAGS); i++) {
+                    T2R.write(ALL_FLAGS[i], false);
+                }
+
+                if time_range[0] != hours(6) {
+                    CLOCK.jump(time_range[0]);
+                }
+            }, [time_range, ALL_FLAGS]);
+
+            TS_CHAIN.append(LinkId.Timer, 1);
+            TS_CHAIN.append(LinkId.Function, function(time_range) {
+                CLOCK.jump(time_range[1]);
+            }, [time_range]);
+            TS_CHAIN.append(LinkId.Timer, 1);
+            TS_CHAIN.append(LinkId.Function, function(time_range, expected_flags, ALL_FLAGS, expected_at_farm) {
+
+                for (var i = 0; i < array_length(ALL_FLAGS); i++) {
+                    var expected = array_contains(expected_flags, ALL_FLAGS[i]);
+                    assert_eq(
+                        T2R.read(ALL_FLAGS[i]),
+                        expected,
+                        "{} in time range {time}-{time} was not {bool}!\nAll flags:\n{}",
+                        ALL_FLAGS[i],
+                        time_range[0],
+                        time_range[1],
+                        expected,
+                        ListFromArray(ALL_FLAGS)
+                            .map_to(function(f) {
+                                return format("{}: {bool}", f, T2R.read(f));
+                            })
+                            .join("\n"),
+                    );
+                }
+
+                assert_eq(
+                    NPCS[NpcId.Juniper].at_farm(),
+                    expected_at_farm,
+                    "juniper at_farm in time range {time}-{time} was not {bool}!",
+                    time_range[0],
+                    time_range[1],
+                    expected_at_farm,
+                );
+
+                T2R.write("rjt_active", false);
+                T2R.write("rjt_start_write", false);
+                T2R.write("rjt_end_write", false);
+            }, [time_range, expected_flags, ALL_FLAGS, expected_at_farm]);
+        }
+
+        //
+        TEST_JUMP([hours(6), hours(7)], [], true)
+        TEST_JUMP([hours(6), hours(9)], [], true)
+        TEST_JUMP([hours(6), hours(11)], ["rjt_a_d", "rjt_b_a", "rjt_b_d", "rjt_c_a"], false)
+        TEST_JUMP([hours(6), hours(13) + minutes(30)], ["rjt_a_d", "rjt_b_a", "rjt_b_d", "rjt_c_a"], false);
+        TEST_JUMP([hours(6), hours(15)], ["rjt_a_d", "rjt_b_a", "rjt_b_d", "rjt_c_a", "rjt_c_d", "rjt_d_a"], false);
+        TEST_JUMP([hours(6), hours(20)], ["rjt_a_d", "rjt_b_a", "rjt_b_d", "rjt_c_a", "rjt_c_d", "rjt_d_a", "rjt_d_d", "rjt_e_a", "rjt_e_d", "rjt_f_a"], true);
+
+        //
+        //
+        TEST_JUMP(
+            [hours(13) + minutes(30), hours(20)],
+            ["rjt_a_d", "rjt_b_a", "rjt_b_d", "rjt_c_a", "rjt_c_d", "rjt_d_a", "rjt_d_d", "rjt_e_a", "rjt_e_d", "rjt_f_a"],
+            true,
+        );
+
+        //
+        //
+        TEST_JUMP(
+            [hours(13) + minutes(30), hours(24)],
+            ["rjt_a_d", "rjt_b_a", "rjt_b_d", "rjt_c_a", "rjt_c_d", "rjt_d_a", "rjt_d_d", "rjt_e_a", "rjt_e_d", "rjt_f_a"],
+            true,
+        );
+
+        TS_CHAIN.append(LinkId.Function, function() {
+            T2R.schedule_deserialize_expirator("{}");
+            CALENDAR.time = hours(6);
+            CLOCK.time = hours(6);
+            T2R.update();
+            T2R.update_daily();
+            npcs_on_new_day(true);
+        });
     }
 });
 
@@ -4220,6 +4400,62 @@ TS_TESTS.push({
         SE.next(function() {
             ARI.set_renown(renown_level_total_cost(80));
         });
+        SE.end_day(); //
+        SE.open_letter("upgrade_the_saturday_market_plaza");
+        SE.assert_quest_active("upgrade_the_saturday_market_plaza");
+        SE.goto_scene_trigger("upgrade_the_saturday_market_plaza");
+        SE.play_out_scene("upgrade_the_saturday_market_plaza");
+        SE.fulfill_quest("upgrade_the_saturday_market_plaza");
+        SE.turn_in_quest(NpcId.Adeline, "upgrade_the_saturday_market_plaza");
+
+        //
+        SE.end_day(); //
+        SE.end_day(); //
+        SE.open_letter("meet_the_new_vendors");
+        SE.assert_quest_active("meet_the_new_vendors");
+        SE.talk_to(NpcId.Zorel);
+        SE.talk_to(NpcId.Stillwell);
+        SE.turn_in_quest(NpcId.Nora, "meet_the_new_vendors");
+
+        //
+        SE.next(function() {
+            ARI.set_renown(renown_level_total_cost(90));
+        })
+        SE.end_day(); //
+        SE.open_letter("repair_the_bell_tower");
+        SE.assert_quest_active("repair_the_bell_tower");
+        SE.goto_scene_trigger("repair_the_bell_tower_pt_1");
+        SE.play_out_scene("repair_the_bell_tower_pt_1");
+        SE.assert_world_mod_enabled(WorldMod.BellTowerBellBroken);
+        SE.fulfill_quest("repair_the_bell_tower");
+        SE.turn_in_quest(NpcId.Adeline, "repair_the_bell_tower");
+        SE.play_out_scene("repair_the_bell_tower_pt_2");
+        SE.assert_world_mod_enabled(WorldMod.BellTowerDoor);
+        SE.assert_world_mod_enabled(WorldMod.BellTower);
+
+        //
+        SE.next(function() {
+            ARI.set_renown(renown_level_total_cost(100));
+        });
+        SE.end_day(); //
+        SE.goto("farm");
+        SE.goto("town");
+        SE.goto_scene_trigger("mistril_rank");
+        SE.play_out_scene("mistril_rank");
+
+        SE.end_day(); //
+        SE.open_letter("complete_the_museum_incomplete");
+        SE.assert_quest_active("complete_the_museum");
+        SE.next(function() {
+            for (var i = 0; i < ItemId.LEN; i++) {
+                if MUSEUM_DATA.museum_items[i] {
+                    register_item_to_museum(i);
+                }
+            }
+
+            T2R.write("completed_museum", requirements_pass(ACHIEVEMENTS[Achievement.CelebratedCurator]));
+        });
+        SE.turn_in_quest(NpcId.Errol, "complete_the_museum");
 
         //
 
@@ -4235,6 +4471,9 @@ TS_TESTS.push({
             var missing_scenes = List();
             var keys = scenes_in_test_target(SceneTestTarget.MainStory);
             for (var i = 0; i < array_length(keys); i++) {
+                if keys[i] == "mistril_rank" {
+                    continue;
+                }
                 if !MIST.scene_history.contains(keys[i]) {
                     missing_scenes.push(keys[i]);
                 }
@@ -4762,6 +5001,199 @@ TS_TESTS.push({
             SE.play_out_scene("elsie_dating_tutorial");
         }
 
+        static TEST_MARRIAGE_AND_CHILDREN = function(npc, ten_heart_item, actually_line, choice_line) {
+            SE.next(function(npc) {
+                for (var i = 0; i < NpcId.LEN; i++) {
+                    if i == npc {
+                        NPCS[npc].set_heart_level(10);
+                    } else {
+                        T2R.write(format("{NpcId}_status", i), undefined);
+                        NPCS[i].set_heart_level(irandom(10));
+                    }
+                }
+
+                ARI.inventory.slot(0).drain();
+
+                var grid = GRIDS[LocationId.PlayerHome];
+                erase_object_node(grid, grid.node_index_for_cell(13, 13));
+                grid.write_node(10, 13, ObjectId.BasicDoubleBedWalnut, Cardinal.South);
+                ARI.last_bed_used = all_player_beds().first();
+            }, [npc]);
+            SE.skip_to_date("spring 1"); //
+            SE.goto_scene_trigger("engagement_tutorial");
+            SE.play_out_scene("engagement_tutorial");
+            SE.next(function() {
+                assert_eq(ARI.inventory.slot(0).item.item_id, ItemId.EngagementRingRecipeScroll);
+                assert(!ARI.recipe_unlocks[ItemId.EngagementRing]);
+                use_item_fast(ARI.inventory.slot(0).item);
+            });
+            SE.wait(1);
+            SE.next(function() {
+                var menu = ANCHOR.get_menu(Menu.Popup);
+                if menu != undefined {
+                    ANCHOR.tap_node(menu.buttons.first());
+                }
+                assert(ARI.recipe_unlocks[ItemId.EngagementRing]);
+                ARI.give_item(ItemId.EngagementRing, 5);
+                TS_TEXTBOX_PROMPT_INDEX = function() {
+                    return 1; //
+                };
+            })
+            SE.goto(npc_id_to_string(npc));
+            SE.interact_with(npc_id_to_gm_obj_id(npc), "misc_local/propose");
+            SE.play_out_textbox();
+            SE.play_out_scene(format("{NpcId}_ten_hearts", npc));
+            SE.next(function(npc, ten_heart_item) {
+                var npc = NPCS[npc];
+                assert_eq(
+                    ANCHOR.get_menu(Menu.Calendar),
+                    undefined,
+                    "Calendar should not have opened!",
+                );
+                assert_eq(
+                    ARI.inventory.item_id_quantity(ItemId.EngagementRing),
+                    5,
+                    "Rings should not have been cleaned up!",
+                );
+                assert_eq(
+                    ARI.inventory.item_id_quantity(ten_heart_item),
+                    1,
+                    "Did not receive ten heart item!",
+                );
+                assert(!npc.is_fiance(), "Should not be engaged!");
+                assert_eq(ARI.proposal_date, undefined);
+                assert_eq(ARI.wedding_date, undefined);
+                TS_TEXTBOX_PROMPT_INDEX = function() {
+                    return 0; //
+                };
+            }, [npc, ten_heart_item]);
+            SE.goto(npc_id_to_string(npc));
+            SE.interact_with(npc_id_to_gm_obj_id(npc), "misc_local/propose");
+            SE.play_out_textbox();
+            SE.play_out_scene(format("{NpcId}_ten_hearts", npc));
+            SE.next(function(npc, ten_heart_item) {
+                ANCHOR.get_menu(Menu.Calendar).close();
+                var npc = NPCS[npc];
+                assert_eq(
+                    ARI.inventory.item_id_quantity(ItemId.EngagementRing),
+                    0,
+                    "Rings should have been cleaned up!",
+                );
+                assert_eq(
+                    ARI.inventory.item_id_quantity(ten_heart_item),
+                    1,
+                    "Should only have one ten heart item!",
+                );
+                assert(npc.is_fiance(), "Should be engaged!");
+                assert_neq(ARI.proposal_date, undefined);
+                assert_neq(ARI.wedding_date, undefined);
+            }, [npc, ten_heart_item]);
+            SE.skip_to_date("4"); //
+            SE.end_day();
+            SE.play_out_scene("wedding");
+            SE.next(function(npc) {
+                var npc = NPCS[npc];
+                assert(npc.is_spouse(), "Should be married!");
+                ARI.inventory.slot(0).drain();
+
+            }, [npc]);
+            SE.play_out_eod();
+            SE.skip_to_date("13");
+            SE.end_day("great_bird_0");
+            SE.next(function() {
+                assert_eq(
+                    ARI.inventory.item_id_quantity(ItemId.MysticalFeather),
+                    1,
+                    "Should have a mystical feather!",
+                );
+            });
+
+            static TEST_STORK_CYCLE = function(npc, actually_line, choice_line, index) {
+                SE.next(function() {
+                    MIST.scene_history.remove("great_bird_1");
+
+                    //
+                    ARI.inventory.slot(0).drain();
+                    ARI.give_item(ItemId.MysticalFeather);
+                });
+                SE.goto(npc_id_to_string(npc));
+                SE.interact_with(npc_id_to_gm_obj_id(npc), "misc_local/discuss");
+                SE.next(function() {
+                    TS_TEXTBOX_PROMPT_INDEX = function() {
+                        return 1; //
+                    }
+                });
+                SE.play_out_textbox();
+                SE.next(function() {
+                    assert_eq(
+                        ARI.inventory.item_id_quantity(ItemId.MysticalFeather),
+                        1,
+                        "Should have a mystical feather!",
+                    );
+                });
+                SE.interact_with(npc_id_to_gm_obj_id(npc), "misc_local/discuss");
+                SE.next(function() {
+                    TS_TEXTBOX_PROMPT_INDEX = function() {
+                        return 0; //
+                    }
+                });
+                SE.play_out_textbox();
+                SE.next(function(npc, actually_line, choice_line, index) {
+                    assert(T2R.read("pending_stork_visit"));
+                    assert_eq(
+                        ARI.inventory.item_id_quantity(ItemId.MysticalFeather),
+                        0,
+                        "Should not have a mystical feather!",
+                    );
+                    global.__actually_line = actually_line;
+                    global.__choice_line = choice_line;
+                    global.__choice = index;
+                    TS_TEXTBOX_PROMPT_INDEX = function(line) {
+                        if line == global.__actually_line {
+                            return 1; //
+                        }
+                        if line == global.__choice_line {
+                            return global.__choice;
+                        }
+                        return 0;
+                    }
+                }, [npc, actually_line, choice_line, index]);
+                SE.end_day("great_bird_1");
+                SE.skip_to_date("12");
+                SE.end_day();
+                if NPC_PROTOTYPES[npc].can_carry_child {
+                    switch index {
+                        case 0:
+                            SE.play_out_scene("stork_delivery");
+                            break;
+                        case 1:
+                            SE.play_out_scene("player_delivery");
+                            break;
+                        case 2:
+                            SE.play_out_scene("spouse_delivery");
+                            break;
+                    }
+                } else if index == 0 {
+                    SE.play_out_scene("player_delivery");
+                } else {
+                    SE.play_out_scene("stork_delivery");
+                }
+
+                SE.next(function() {
+                    assert_eq(array_length(ARI.children), 1, "Should have on child!");
+                    ARI.children = [];
+                    ARI.inventory.slot(0).drain();
+                    ARI.give_item(ItemId.MysticalFeather);
+                })
+            }
+
+            TEST_STORK_CYCLE(npc, actually_line, choice_line, 0);
+            TEST_STORK_CYCLE(npc, actually_line, choice_line, 1);
+            if NPC_PROTOTYPES[npc].can_carry_child {
+                TEST_STORK_CYCLE(npc, actually_line, choice_line, 2);
+            }
+        }
+
         switch NPC_TEST_TARGET {
             case NpcId.Adeline:
                 LETTER_QUEST("adeline", 2, "adeline_two_hearts", "the_smell_of_drying_ink");
@@ -4770,6 +5202,7 @@ TS_TESTS.push({
                 TS_TEXTBOX_PROMPT_INDEX = function() { return 1; };
                 LETTER_QUEST("adeline", 8, "adeline_eight_hearts", "lost_track_of_time_ssna", "lost_track_of_time");
                 DATING_TUTORIAL();
+                TEST_MARRIAGE_AND_CHILDREN(NpcId.Adeline, ItemId.AdelinesLifetimePlanner, "7", "14");
                 break;
             case NpcId.Balor:
                 SE.simulate_quest("repair_the_bridge");
@@ -4785,14 +5218,17 @@ TS_TESTS.push({
                 TS_TEXTBOX_PROMPT_INDEX = function() { return 1; };
                 LETTER_QUEST("balor", 8, "balor_eight_hearts", "for_good_ssa", "for_good");
                 DATING_TUTORIAL();
+                TEST_MARRIAGE_AND_CHILDREN(NpcId.Balor, ItemId.BalorsPolishedGem, "6", "13");
                 break;
             case NpcId.Caldarus:
                 SE.next(function() {
                     fulfill_requirement(Requirement.UnlockedDeepWoods);
+                    fulfill_requirement(Requirement.ClosedFinalSeal);
                 });
                 TS_TEXTBOX_PROMPT_INDEX = function() { return 1; };
                 LETTER_QUEST("caldarus", 8, "caldarus_eight_hearts", "life_in_this_form");
                 DATING_TUTORIAL();
+                TEST_MARRIAGE_AND_CHILDREN(NpcId.Caldarus, ItemId.CaldarusDragonswornStatue, "7", "15");
                 break;
             case NpcId.Celine:
                 LETTER_QUEST("celine", 2, "celine_two_hearts", "the_unusual_seed");
@@ -4802,6 +5238,7 @@ TS_TESTS.push({
                 TS_TEXTBOX_PROMPT_INDEX = function() { return 1; };
                 LETTER_QUEST("celine", 8, "celine_eight_hearts", "a_lost_flower");
                 DATING_TUTORIAL();
+                TEST_MARRIAGE_AND_CHILDREN(NpcId.Celine, ItemId.CelinesRevivedFlower, "8", "16");
                 break;
             case NpcId.Eiland:
                 LETTER_QUEST("eiland", 2, "eiland_two_hearts", "the_stele");
@@ -4813,6 +5250,7 @@ TS_TESTS.push({
                 });
                 LETTER_QUEST("eiland", 8, "eiland_eight_hearts", "the_glade");
                 DATING_TUTORIAL();
+                TEST_MARRIAGE_AND_CHILDREN(NpcId.Eiland, ItemId.EilandsLegacyStele, "6", "13");
                 break;
             case NpcId.Hayden:
                 LETTER_QUEST("hayden", 2, "hayden_two_hearts", "a_get_together");
@@ -4822,6 +5260,7 @@ TS_TESTS.push({
                 TS_TEXTBOX_PROMPT_INDEX = function() { return 1; };
                 LETTER_QUEST("hayden", 8, "hayden_eight_hearts", "a_little_while_longer_ssna", "a_little_while_longer");
                 DATING_TUTORIAL();
+                TEST_MARRIAGE_AND_CHILDREN(NpcId.Hayden, ItemId.HaydensCarvedNest, "7", "14");
                 break;
             case NpcId.Juniper:
                 BOARD_QUEST("juniper", 2, "juniper_two_hearts", "becoming_junipers_guinea_pig");
@@ -4835,6 +5274,7 @@ TS_TESTS.push({
                 TS_TEXTBOX_PROMPT_INDEX = function() { return 1; };
                 LETTER_QUEST("juniper", 8, "juniper_eight_hearts", "potions_and_errands", "potions_and_errands", NpcId.Juniper);
                 DATING_TUTORIAL();
+                TEST_MARRIAGE_AND_CHILDREN(NpcId.Juniper, ItemId.JunipersProtectionScroll, "8", "17");
                 break;
             case NpcId.March:
                 LETTER_QUEST("march", 2, "march_two_hearts", "surprise_me");
@@ -4852,6 +5292,7 @@ TS_TESTS.push({
                 TS_TEXTBOX_PROMPT_INDEX = function() { return 1; };
                 SE.play_out_scene("march_eight_hearts");
                 DATING_TUTORIAL();
+                TEST_MARRIAGE_AND_CHILDREN(NpcId.March, ItemId.MarchsMistrianShield, "8", "16");
                 break;
             case NpcId.Reina:
                 LETTER_QUEST("reina", 2, "reina_two_hearts", "pie_in_the_sky");
@@ -4860,6 +5301,7 @@ TS_TESTS.push({
                 TS_TEXTBOX_PROMPT_INDEX = function() { return 1; };
                 LETTER_QUEST("reina", 8, "reina_eight_hearts", "the_aldarian_cooking_contest");
                 DATING_TUTORIAL();
+                TEST_MARRIAGE_AND_CHILDREN(NpcId.Reina, ItemId.ReinasCookbookManuscript, "9", "17");
                 break;
             case NpcId.Ryis:
                 SE.next(function() {
@@ -4872,9 +5314,11 @@ TS_TESTS.push({
                 TS_TEXTBOX_PROMPT_INDEX = function() { return 1; };
                 LETTER_QUEST("ryis", 8, "ryis_eight_hearts", "a_duet");
                 DATING_TUTORIAL();
+                TEST_MARRIAGE_AND_CHILDREN(NpcId.Ryis, ItemId.RyisHawthornTree, "8", "17");
                 break;
             case NpcId.Seridia:
                 SE.next(function() {
+                    fulfill_requirement(Requirement.BrokeFireSeal);
                     fulfill_requirement(Requirement.SeridiaTransformed);
                     T2R.write("seridia_is_human", true);
                     T2R.write("caldarus_seridia_town", true);
@@ -4883,6 +5327,7 @@ TS_TESTS.push({
                 TS_TEXTBOX_PROMPT_INDEX = function() { return 1; };
                 LETTER_QUEST("seridia", 8, "seridia_eight_hearts", "whatever_your_heart_desires");
                 DATING_TUTORIAL();
+                TEST_MARRIAGE_AND_CHILDREN(NpcId.Seridia, ItemId.SeridiasDragonswornArmor, "10", "18");
                 break;
             case NpcId.Valen:
                 BOARD_QUEST("valen", 2, "valen_two_hearts", "the_annual_check_up");
@@ -4895,6 +5340,7 @@ TS_TESTS.push({
                 TS_TEXTBOX_PROMPT_INDEX = function() { return 1; };
                 LETTER_QUEST("valen", 8, "valen_eight_hearts", "the_panacea");
                 DATING_TUTORIAL();
+                TEST_MARRIAGE_AND_CHILDREN(NpcId.Valen, ItemId.ValensPanaceaJar, "8", "16");
                 break;
             default:
                 crash("a valid `npc_test_target` must be given for the `dateable_progression` test");

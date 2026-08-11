@@ -37,6 +37,7 @@ function MistRuntime() constructor {
     self.return_value = new ValueHolder();
     self.running = false;
     self.checkpoint_target = undefined;
+    self.simulated_prompt_index = 0;
     self.muted = false;
     self.blackboard = Map();
     self.base_thread = undefined;
@@ -618,8 +619,9 @@ function MistRuntime() constructor {
     }
 
     //
-    function begin_simulation(checkpoint) {
+    function begin_simulation(checkpoint, prompt_index=0) {
         self.checkpoint_target = checkpoint;
+        self.simulated_prompt_index = prompt_index;
         global_environment.assign("_SIMULATE_", true);
     }
 

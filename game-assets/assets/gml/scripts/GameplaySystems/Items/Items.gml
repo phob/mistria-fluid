@@ -128,6 +128,7 @@ function create_item_prototypes() {
             stamina_cost: fiddle_data[$ "stamina_cost"] ?? -1,
             catch_size: fiddle_data[$ "catch_size"] ?? 0,
             date_unlock: opt_and_then(fiddle_data[$ "date_unlock"], string_to_date),
+            song: fiddle_data[$ "song"],
         };
 
         //
@@ -242,6 +243,10 @@ function create_item_prototypes() {
             prototype.use = ItemUse.GainGoldInstant;
         } else if prototype.tags.contains("scroll") {
             prototype.use = ItemUse.LearnRecipe;
+        } else if prototype.song != undefined {
+            prototype.use = ItemUse.UnlockSong;
+        } else if prototype.item_id == ItemId.BigEgg {
+            prototype.use = ItemUse.CrackEgg;
         } else if prototype.item_id == ItemId.AnimalCosmetic {
             prototype.use = ItemUse.UnlockAnimalCosmetic;
         } else if prototype.item_id == ItemId.PetCosmetic {
@@ -284,7 +289,6 @@ function create_item_prototypes() {
         if fiddle_data[$ "soulbind"] != undefined {
             if fiddle_data.soulbind == "forever" {
                 prototype.soulbind = { type: Soulbind.Forever };
-                assert_neq(prototype.use, undefined, "Cannot soulbind an {ItemId} forever if it has no use!", item_id);
             } else {
                 prototype.soulbind = {
                     type: Soulbind.Requirements,
@@ -294,7 +298,7 @@ function create_item_prototypes() {
         }
 
         //
-        prototype.giftable = prototype.soulbind == undefined && !matches(prototype.use, ItemUse.PlaceObject, ItemUse.UseTool, ItemUse.Attack, ItemUse.IdentifyItem, ItemUse.OpenChest, ItemUse.PlantSeed, ItemUse.PlantSapling, ItemUse.PlantGrass, ItemUse.Propose, ItemUse.PlanFamily);
+        prototype.giftable = prototype.soulbind == undefined && !matches(prototype.use, ItemUse.PlaceObject, ItemUse.UseTool, ItemUse.Attack, ItemUse.IdentifyItem, ItemUse.OpenChest, ItemUse.PlantSeed, ItemUse.PlantSapling, ItemUse.PlantGrass);
         prototype.hold_over_head = !matches(
             prototype.use,
             ItemUse.UseTool,
@@ -625,6 +629,7 @@ enum ItemUse {
     GainGoldInstant,
     ExpandInventory,
     UnlockAnimalCosmetic,
+    CrackEgg,
     UnlockPetCosmetic,
     CrackEssenceStone,
     Bomb,
@@ -632,8 +637,7 @@ enum ItemUse {
     UnpackBundle,
     UnlockPetSkin,
     Bait,
-    Propose,
-    PlanFamily,
+    UnlockSong,
     LEN,
 }
 
@@ -795,14 +799,14 @@ enum AnnoyingItem {
 //
 function string_to_item_id_or_unknown(str) {
     var item_id;
-    if !DEBUG_ASSERTIONS {
+    if DEBUG_ASSERTIONS {
+        item_id = string_to_item_id(str);
+    } else {
         item_id = try_string_to_item_id(str);
         if item_id == undefined {
             error("Deserializing unexpected item_id: `{}`. replacing with unknown item...", str);
             item_id = ItemId.UnknownItem;
         }
-    } else {
-        item_id = string_to_item_id(str);
     }
     return item_id;
 }

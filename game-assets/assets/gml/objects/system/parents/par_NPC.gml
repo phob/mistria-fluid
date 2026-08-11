@@ -5,8 +5,11 @@ object_create(
         sprite_index: undefined,
         create: function() {
             event_inherit(ObjectEvent.Create, par_interactable);
+            self.selection_priority = 1;
             z = 0;
             y_offset = 0;
+            kiss_particle = undefined;
+            kiss_sound = undefined;
 
             shadow_caster = SHADOW_GRID.caster_create(x, y);
             shadow_caster_set_sprite(shadow_caster, spr_npc_shadow);
@@ -73,6 +76,11 @@ object_create(
                             break;
                         default: return;
                     }
+
+                    //
+                    //
+                    self.depth = get_instance_depth(self.y, self.z);
+                    shadow_caster_set_position(self.shadow_caster, self.x, self.y);
 
                     //
                     self.fsm.blackboard.set(
@@ -526,7 +534,7 @@ object_create(
                             }
                         })
                         .end_step(function() {
-                            if self.manual_halt {
+                            if self.manual_halt || self.owner.kissing {
                                 return;
                             }
 
@@ -836,11 +844,13 @@ object_create(
                 var prefs = fiddle_get(format("npcs/{NpcId}/drink_preferences", self.me.id));
 
                 var options = ["water"];
-                for (var i = CLOCK.hour(); i >= 6; i--) {
-                    var data_on_hour = prefs[$ string(i)];
-                    if data_on_hour != undefined {
-                        options = data_on_hour;
-                        break;
+                if T2R.read(format("{NpcId}_can_drink", self.npc_id)) != false {
+                    for (var i = CLOCK.hour(); i >= 6; i--) {
+                        var data_on_hour = prefs[$ string(i)];
+                        if data_on_hour != undefined {
+                            options = data_on_hour;
+                            break;
+                        }
                     }
                 }
 
@@ -858,6 +868,59 @@ object_create(
                     self.drink_animation = undefined;
                 }
 
+            }
+
+            function setup_kiss_particle() {
+                new_world_chain(self, CURRENT_LOCATION_ID)
+                    .append(LinkId.Await, function() {
+                        return self.me.animation == "kiss";
+                    })
+                    .append(LinkId.Timer, 120)
+                    .append(LinkId.Function, function() {
+                        if self.kissing == false {
+                            return;
+                        }
+                        if self.kiss_particle != undefined {
+                            instance_destroy(self.kiss_particle);
+                        }
+                        self.kiss_sound = TANGO.play("SoundEffects/SpecialEvents/KissStart");
+                        self.kiss_particle = instance_create_depth(self.x + 8 * self.image_xscale, self.y, self.depth - 1, obj_animation_effect);
+                        self.kiss_particle.sprite_index = spr_fx_kiss_start;
+                        self.kiss_particle.image_idx = sprite_get_number(spr_fx_kiss_start);
+                        self.kiss_particle.live_on_anim_end = true;
+                        self.kiss_particle.image_idx_func = function() {
+                            self.kiss_particle.sprite_index = spr_fx_kiss_loop;
+                        }
+                    })
+                    .append(LinkId.Await, function() {
+                        if self.kissing == false {
+                            return true;
+                        }
+
+                        if !INPUT.check(InputId.SecondaryInteract) {
+                            if self.kiss_particle == undefined {
+                                return true;
+                            }
+                            self.kiss_particle.image_idx = sprite_get_number(spr_fx_kiss_loop);
+                            self.kiss_particle.image_idx_func = function() {
+                                new_chain()
+                                    .append(LinkId.Timer, 1) //
+                                    .append(LinkId.Function, function() {
+                                        if self.kiss_particle == undefined {
+                                            return;
+                                        }
+                                        self.kiss_particle.image_idx = sprite_get_number(spr_fx_kiss_end);
+                                        self.kiss_particle.sprite_index = spr_fx_kiss_end;
+                                        self.kiss_particle.image_idx_func = function() {
+                                            instance_destroy(self.kiss_particle);
+                                            self.kiss_particle = undefined;
+                                        };
+                                    })
+                            }
+                            return true;
+                        }
+                        return false;
+                    })
             }
 
             //
@@ -1008,7 +1071,6 @@ object_create(
             //
             function receive_gift(item) {
                 var data = self.me.give_gift(item);
-                refresh_achievements();
                 self.bark_emitter.emit(data.bark);
                 self.talk(data.convo);
             }
@@ -1261,6 +1323,64 @@ object_create(
                         && (self.npc_id != NpcId.Caldarus || !caldarus_is_sleeping())
                         && (instance_exists(obj_ari) == false || obj_ari.is_mounted() == false);
                 }
+            );
+
+            self.register_interaction(
+                InputId.Throw,
+                "misc_local/propose",
+                function() {
+                    if self.npc_id == NpcId.Caldarus && !requirements_pass(Requirement.ClosedFinalSeal) {
+                        self.talk(GAMEPLAY_CONVERSATIONS[GpTriggeredConversation.CaldarusProposalEdgeCase]);
+                    } else {
+                        self.talk(format(
+                            "Cutscenes/Heart Events/{}/{NpcId}_ten_hearts/engagement_ring_{NpcId}",
+                            capitalize(npc_id_to_string(self.npc_id)),
+                            self.npc_id,
+                            self.npc_id,
+                        ));
+                    }
+                },
+                function() {
+                    var held_item = ARI.held_item();
+                    if held_item == undefined {
+                        return false;
+                    }
+
+                    return held_item.item_id == ItemId.EngagementRing
+                        && self.me.heart_level() >= 10
+                        && self.me.is_dating()
+                        && ARI.fiance() == undefined
+                        && ARI.spouse() == undefined;
+                }
+            )
+
+            self.register_interaction(
+                InputId.Throw,
+                "misc_local/discuss",
+                function() {
+                    var anim = self.me.animation;
+                    self.me.set_animation(self.me.is_seated() ? "sit" : "idle");
+                    self.talk(
+                        format("Conversations/family_planning/family_planning_{NpcId}", self.npc_id),
+                        function(_, anim) {
+                            if T2R.read("pending_stork_visit") == true {
+                                remove_item_from_world(ItemId.MysticalFeather);
+                            }
+                            self.me.set_animation(anim);
+                        },
+                        [anim]
+                    );
+                },
+                function() {
+                    var held_item = ARI.held_item();
+                    if held_item == undefined {
+                        return false;
+                    }
+
+                    return held_item.prototype.item_id == ItemId.MysticalFeather
+                        && self.me.is_spouse()
+                        && ARI.pending_child == undefined;
+                }
             )
 
             self.register_interaction(
@@ -1297,9 +1417,12 @@ object_create(
                     date_selection_ui(self.npc_id);
                 },
                 function() {
-                    return self.me.can_go_on_dates() && ari_eligible_for_date(self.npc_id) && npc_is_unlocked(self.npc_id);
+                    return self.me.can_go_on_dates()
+                        && ari_eligible_for_date(self.npc_id)
+                        && npc_is_unlocked(self.npc_id)
+                        && self.me.animation != "sleep";
                 }
-            )
+            );
 
             var valid_date_target = false;
             for (var i = 0; i < FestivalId.LEN; i++) {
@@ -1381,6 +1504,12 @@ object_create(
                         if ARI.festival_date_partner != undefined {
                             return false;
                         }
+
+                        //
+                        if ARI.spouse() != undefined && !self.me.is_partner() {
+                            return false;
+                        }
+
                         var held_item = ARI.held_item();
 
                         for (var i = 0; i < FestivalId.LEN; i++) {
@@ -1425,6 +1554,116 @@ object_create(
                         && FESTIVALS[FestivalId.ShootingStar].is_today()
                         && npc_is_unlocked(self.npc_id);
                 }
+            );
+
+
+            self.register_interaction(
+                //
+                //
+                //
+                //
+                //
+                InputId.Throw,
+                "misc_local/hold_child",
+                function() {
+                    self.me.held_child().set_location(ChildLocation.WithAri);
+                },
+                function() {
+                    return self.me.held_child() != undefined && ARI.held_child() == undefined;
+                }
+            );
+
+            self.register_interaction(
+                //
+                InputId.Throw,
+                "misc_local/give_child",
+                function() {
+                    self.talk(GAMEPLAY_CONVERSATIONS[GpTriggeredConversation.TakeBaby], function() {
+                        if ANCHOR.get_menu(Menu.Textbox).driver.prompt_index_selected == 0 {
+                            ARI.held_child().set_location(ChildLocation.WithSpouse);
+                        }
+                    })
+                },
+                function() {
+                    return self.me.is_spouse()
+                        && self.me.held_child() == undefined
+                        && ARI.held_child() != undefined;
+                }
+            );
+
+            self.register_interaction(
+                InputId.SecondaryInteract,
+                "misc_local/kiss",
+                function() {
+                    self.kissing = true;
+                    var old_card = self.me.cardinality;
+                    var old_anim = self.me.animation;
+                    self.me.set_animation("idle");
+                    var target = Vec2(self.x, self.y);
+                    var dir_sign = sign(self.x - obj_ari.x);
+                    if dir_sign == -1 {
+                        target.x += 16;
+                        self.me.set_cardinality(Cardinal.East);
+                    } else {
+                        target.x -= 16;
+                        self.me.set_cardinality(Cardinal.West);
+                    }
+                    var kiss_card = self.me.cardinality;
+                    self.setup_kiss_particle();
+                    var success = try_path_ari_to(target);
+                    var chain = new_world_chain(self, CURRENT_LOCATION_ID);
+                    if success {
+                        chain.append(LinkId.Await, function() {
+                            return !obj_ari.fsm.check_state_inclusive(PlayerState.Pathfind);
+                        });
+                    }
+                    chain.append(LinkId.Function, function(kiss_card) {
+                        obj_ari.face_dir(cardinal_to_inverse(kiss_card) * 90);
+                        obj_ari.fsm.blackboard.set("do_not_set_idle", true);
+                        obj_ari.fsm.change_state_instant(PlayerState.Cutscene);
+                        obj_ari.par.set_animation(AnimationName.Kiss);
+                        self.me.set_animation("kiss");
+                        self.me.set_cardinality(kiss_card);
+                        self.anim_speed = 1;
+                        obj_ari.par_anim_spd = obj_ari.default_par_anim_spd;
+                    }, [kiss_card]);
+                    chain.append(LinkId.Timer, 65);
+                    chain.append(LinkId.Function, function() {
+                        self.anim_speed = 0;
+                        obj_ari.par_anim_spd = 0;
+                    });
+                    chain.append(LinkId.Await, function() {
+                        return !INPUT.check(InputId.SecondaryInteract);
+                    });
+                    chain.append(LinkId.Function, function() {
+                        if self.kiss_sound != undefined {
+                            TANGO.request_stop(self.kiss_sound);
+                        }
+                        self.kiss_sound = undefined;
+                        self.anim_speed = 1;
+                        obj_ari.par_anim_spd = obj_ari.default_par_anim_spd;
+                    });
+                    chain.join(LinkId.Timer, 9)
+                    chain.append(LinkId.Function, function(old_anim, old_card) {
+                        obj_ari.fsm.change_state(PlayerState.Default);
+
+                        //
+                        if old_anim == "sleep" {
+                            old_anim = "idle";
+                        }
+                        self.me.set_animation(old_anim);
+                        self.me.set_cardinality(old_card);
+                        self.bark_emitter.emit(BarkId.Heart, BarkType.Speech);
+                        obj_ari.bark_emitter.emit(BarkId.Heart, BarkType.Speech);
+                        self.kissing = false;
+                    }, [old_anim, old_card]);
+                },
+                function() {
+                    return self.me.is_partner()
+                        && matches(self.fsm.current_state_id(), NpcState.Default, NpcState.Pathfinding) //
+                        && !self.me.is_seated() //
+                },
+                false, //
             );
 
             if self.npc_id == NpcId.Dozy || self.npc_id == NpcId.Henrietta {
@@ -1473,6 +1712,11 @@ object_create(
         },
         step: function() {
             depth = get_instance_depth(y, z);
+
+            if self.kiss_particle != undefined && !self.kissing {
+                instance_destroy(self.kiss_particle);
+                self.kiss_particle = undefined;
+            }
 
             if non_cutscene_pause() {
                 return;
@@ -1542,6 +1786,10 @@ object_create(
                 return;
             }
 
+            if self.kissing {
+                return;
+            }
+
             var menu = ANCHOR.get_menu(Menu.Textbox);
             if menu != undefined {
                 return;
@@ -1582,6 +1830,10 @@ object_create(
             self.me.brain.blackboard.set("instance", undefined);
             self.animator.stop_sound();
             self.clean_eat_and_drink();
+
+            if self.kiss_sound != undefined {
+                TANGO.force_stop(self.kiss_sound);
+            }
 
             SHADOW_GRID.caster_remove(self.shadow_caster);
             T2R.write(format("{NpcId}_eating", self.npc_id), undefined);

@@ -4,6 +4,38 @@ global.__npc_database = undefined;
 #macro NPC_WHITELIST global.__npc_whitelist
 global.__npc_whitelist = array_create(NpcId.LEN, true);
 
+//
+//
+//
+//
+if DEBUG_TOOLS {
+    var white_list = environment_get_variable("FOM_NPC_WHITELIST");
+    if white_list != undefined {
+        NPC_WHITELIST = array_create(NpcId.LEN, false);
+
+        try {
+            var single_npc = try_string_to_npc_id(white_list);
+            if single_npc != undefined {
+                NPC_WHITELIST[single_npc] = true;
+                show_debug_message("NPC Database only using " + white_list);
+            } else {
+                var json = json_parse(white_list);
+
+                for (var i = 0; i < array_length(json); i++) {
+                    NPC_WHITELIST[string_to_npc_id(json[i])] = true;
+                    show_debug_message("NPC Database using " + json[i]);
+                }
+            }
+        } catch(e) {
+            show_debug_message("failed to parse in NPC whitelist!");
+            NPC_WHITELIST = array_create(NpcId.LEN, true);
+        }
+    }
+}
+
+#macro IN_NPC_TIME_JUMP global.__in_npc_time_jump
+IN_NPC_TIME_JUMP = false;
+
 function npcs_on_step() {
     if DEBUG_TOOLS {
         var span = profile_span_start("npcs_on_step");
@@ -18,6 +50,11 @@ function npcs_on_step() {
         }
 
         var npc = NPCS[i];
+
+        if npc.swap_schedule_request != undefined && npc.location_position.location_id != CURRENT_LOCATION_ID {
+            perform_schedule_swap(i, npc.swap_schedule_request.schedule_name, npc.swap_schedule_request.finish, CALENDAR.unified_time());
+            npc.swap_schedule_request = undefined;
+        }
 
         //
         //
@@ -65,6 +102,8 @@ function interrupt_npc(npc) {
 function npcs_time_jump(time, old_time, skip_pathfinding=false) {
     assert(time >= old_time, "internal time jump error -- we can't jump from {} to {}", time, old_time);
 
+    IN_NPC_TIME_JUMP = true;
+
     //
     var npc_state_info = array_create(NpcId.LEN, undefined);
 
@@ -92,6 +131,7 @@ function npcs_time_jump(time, old_time, skip_pathfinding=false) {
             going_to: trellis_point_location_position(current_schedule_data.point),
             time: current_schedule_data.time,
             in_room,
+            schedule: T2R.schedule_name(npc_id),
         };
     }
 
@@ -137,6 +177,11 @@ function npcs_time_jump(time, old_time, skip_pathfinding=false) {
         }
 
         //
+        if state_info.schedule != T2R.schedule_name(npc_id) {
+            continue;
+        }
+
+        //
         npc.location_position = state_info.location_position.clone();
 
         //
@@ -161,6 +206,7 @@ function npcs_time_jump(time, old_time, skip_pathfinding=false) {
     }
 
     if skip_pathfinding {
+        IN_NPC_TIME_JUMP = false;
         return;
     }
 
@@ -220,7 +266,14 @@ function npcs_time_jump(time, old_time, skip_pathfinding=false) {
             }
         }
     }
+
+    //
+    T2R.update();
+
+    IN_NPC_TIME_JUMP = false;
 }
+
+
 
 function npcs_on_room_start() {
     for (var i = 0; i < NpcId.LEN; i++) {
@@ -236,7 +289,7 @@ function npcs_on_room_start() {
     }
 }
 
-function npcs_on_new_day() {
+function npcs_on_new_day(expect_early=false) {
     for (var i = 0; i < NpcId.LEN; i++) {
         if DEBUG_TOOLS && !NPC_WHITELIST[i] {
             continue;
@@ -254,7 +307,9 @@ function npcs_on_new_day() {
         npc.wardrobe.set_outfit(npc.prototype.get_suitable_outfit_key(npc.wardrobe, CALENDAR.time));
         interrupt_npc(npc);
 
-        var schedule_end = T2R.schedule_end(i);
+        //
+
+        var schedule_end = T2R.schedule_end(i, expect_early);
         for (var k = 0, c = array_length(schedule_end.on_arrival_actions); k < c; k++) {
             process_t2_action(schedule_end.on_arrival_actions[k], i);
         }
@@ -263,13 +318,31 @@ function npcs_on_new_day() {
         }
 
         //
-        var new_schedule_name = T2R.request_schedule(i);
+        var new_schedule_name = undefined;
+        if npc.is_roommate() {
+            if CALENDAR.day_type() == Day.Friday {
+                new_schedule_name = "Schedules/roommate_schedule_friday";
+            } else if todays_festival() != undefined {
+                new_schedule_name = "Schedules/roommate_schedule_festival";
+            } else {
+                new_schedule_name = "Schedules/roommate_schedule";
+            }
+        } else {
+            new_schedule_name = T2R.request_schedule(i);
+        }
         var schedule_selected = T2R.schedule_start(i, new_schedule_name);
 
         //
         npc.location_position = trellis_point_location_position(schedule_selected.point);
         for (var k = 0, c = array_length(schedule_selected.actions); k < c; k++) {
             process_t2_action(schedule_selected.actions[k], i);
+        }
+
+        if npc.is_roommate() {
+            roommate_to_sleep(npc);
+            if npc.is_spouse() {
+                npc.brain_dead = false;
+            }
         }
 
         //

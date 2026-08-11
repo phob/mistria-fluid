@@ -170,7 +170,7 @@ function CraftingMenu(object_id) : AnchorMenu(Menu.Crafting) constructor {
 
         if sub_data.get("corner_tier") {
             self.corner_tier.enable();
-            self.corner_tier.set_text(NODE_PROTOTYPES[self.object_id].interact_menu.kitchen_level);
+            self.corner_tier.text.set_text(NODE_PROTOTYPES[self.object_id].interact_menu.kitchen_level);
             self.corner_skill.add_y(17);
             self.level_requirement_box.set_xy(self.layout.level_requirement_box.cooking_position);
         }
@@ -264,7 +264,7 @@ function CraftingMenu(object_id) : AnchorMenu(Menu.Crafting) constructor {
             .set_x(self.layout.category.icon_offset.x)
 
         ANCHOR.text(icon)
-            .set_xy(4, 1)
+            .set_x(4)
             .set_align(Align.RightOut, Align.Middle)
             .set_key(category.name)
             .set_lut(self.text_lut, self.lut_indexes.get("category_name"))
@@ -285,7 +285,7 @@ function CraftingMenu(object_id) : AnchorMenu(Menu.Crafting) constructor {
                     .set_xy(self.layout.category.icon_offset)
 
                 ANCHOR.text(icon)
-                    .set_xy(4, 1)
+                    .set_x(4)
                     .set_align(Align.RightOut, Align.Middle)
                     .set_key(sub_category.name)
                     .set_lut(self.text_lut, self.lut_indexes.get("body"))
@@ -388,7 +388,7 @@ function CraftingMenu(object_id) : AnchorMenu(Menu.Crafting) constructor {
         self.description
             .enable()
             .set_ghost_key(self.item.prototype.description_key)
-            .set_text(self.item.get_display_description());
+            .set_text(self.item.get_display_description())
         self.duration_icon.enable();
 
         self.handle_preview(self.item);
@@ -703,10 +703,16 @@ function CraftingMenu(object_id) : AnchorMenu(Menu.Crafting) constructor {
 
             var sprite = first_cardinal[$ "on_sprite"] ?? first_cardinal.sprite;
 
-            var centered = centered_position_from_bbox(
-                sprite,
-                self.preview_box.get_size(),
-            );
+            //
+            if animation_to_shape(sprite) == undefined {
+                warn("Missing a shape for '{gm_sprite}'!", sprite);
+                var centered = Vec2Zero();
+            } else {
+                var centered = centered_position_from_bbox(
+                    sprite,
+                    self.preview_box.get_size(),
+                );
+            }
 
             var preview = ANCHOR.sprite(self.preview_box)
                 .set_sprite(sprite)
@@ -930,7 +936,6 @@ function CraftingMenu(object_id) : AnchorMenu(Menu.Crafting) constructor {
         if self.corner_plate.get_enabled() {
             self.corner_skill.update_level();
         }
-        refresh_achievements();
         ANCHOR.set_active_pilot(self.bottom_pilot);
     }
 
@@ -1106,7 +1111,7 @@ function CraftingMenu(object_id) : AnchorMenu(Menu.Crafting) constructor {
         .set_sprite_font("player_level")
         .set_lut(COMMON_LUT)
         .set_align(Align.RightOut, Align.Middle)
-        .set_xy(2, 1)
+        .set_x(2)
 
     self.stars = ANCHOR.sprite(self.right_body)
         .set_xy(self.layout.stars.position)
@@ -1116,10 +1121,11 @@ function CraftingMenu(object_id) : AnchorMenu(Menu.Crafting) constructor {
         .set_xy(self.layout.description_box.position)
 
     self.description = ANCHOR.text(self.description_box)
-        .set_xy(3, 1)
+        .set_x(3)
         .set_align(Align.LeftIn, Align.TopIn)
         .allow_line_breaks()
         .prevent_spillover()
+        .set_line_height(13)
         .disable()
 
     self.quantity_box = ANCHOR.positional(self.right_body)
@@ -1256,6 +1262,21 @@ function CraftingMenu(object_id) : AnchorMenu(Menu.Crafting) constructor {
         .set_align(Align.Center, Align.Middle)
         .set_xy(self.layout.max_icon.position)
 
+    switch local_language() {
+        case "spa":
+            self.max_button.set_width(38);
+            self.max_icon.set_sprite(spr_ui_crafting_max_icon_es);
+            break;
+        case "kor":
+            self.max_button.set_width(38);
+            self.max_icon.set_sprite(spr_ui_crafting_max_icon_kr);
+            break;
+        case "rus":
+            self.max_button.set_width(40);
+            self.max_icon.set_sprite(spr_ui_crafting_max_icon_ru);
+            break;
+    }
+
     self.max_button.set_valid = function(boo=true) {
         if boo {
             self.max_button.set_sprites_from_key("spr_ui_crafting_button");
@@ -1291,17 +1312,10 @@ function CraftingMenu(object_id) : AnchorMenu(Menu.Crafting) constructor {
         .set_xy(-2, 2)
         .set_alpha(0)
 
-    self.corner_tier = ANCHOR.text(self.corner_plate)
-        .set_xy(-4, 6)
+    self.corner_tier = render_kitchen_tier(self.corner_plate, 0)
         .set_align(Align.RightIn, Align.TopIn)
-        .set_sprite_font("player_level")
-        .set_lut(COMMON_LUT, CommonLutIndex.Green)
+        .set_xy(-4, 3)
         .disable()
-
-    self.corner_icon = ANCHOR.sprite(self.corner_tier)
-        .set_sprite(spr_ui_tooltip_icon_kitchen_level)
-        .set_xy(-3, -1)
-        .set_align(Align.LeftOut, Align.Middle)
 
     self.corner_skill = render_skill_level(self.corner_plate, Skill.Cooking, false)
         .set_align(Align.RightIn, Align.TopIn)

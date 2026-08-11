@@ -139,7 +139,7 @@ function in_game_music_selector(location_id) {
         //
         var count = 0;
         for (var i = 0; i < NpcId.LEN; i++) {
-            if NPCS[i].location_position.location_id == LocationId.Inn {
+            if NPC_WHITELIST[i] && NPCS[i].location_position.location_id == LocationId.Inn {
                 count += 1;
             }
         }
@@ -176,7 +176,15 @@ function in_game_music_selector(location_id) {
     }
 
     //
-    if location.music != undefined {
+    //
+    var crystal_override = CURRENT_DYN_INDEX != undefined
+        ? ARI.dyn_song_overrides[string(CURRENT_DYN_INDEX)]
+        : ARI.song_overrides[location_id];
+    var crystal_overrides_unique = crystal_override != undefined
+        && is_home_location(location_id);
+
+    //
+    if location.music != undefined && !crystal_overrides_unique {
         var key = CLOCK.is_day() ? "day" : "night";
         var track = location.music[$ key];
         if track != undefined {
@@ -191,6 +199,15 @@ function in_game_music_selector(location_id) {
     }
 
     //
+    crystal_override = location.map_location == LocationId.Town
+        ? ARI.song_overrides[LocationId.Town]
+        : crystal_override;
+
+    if crystal_override != undefined {
+        return SONGS[crystal_override].track;
+    }
+
+    //
     if CLOCK.is_day() {
         var weather = WEATHER_PROTOTYPES[WEATHER.weather];
         var weather_track = weather.music[CALENDAR.season()];
@@ -199,11 +216,20 @@ function in_game_music_selector(location_id) {
         }
 
         //
-        switch CALENDAR.season() {
-            case Season.Spring: return "Music/Playlists/Spring";
-            case Season.Summer: return "Music/Playlists/Summer";
-            case Season.Fall: return "Music/Playlists/Fall";
-            case Season.Winter: return "Music/Playlists/Winter";
+        if CALENDAR.year() >= 1 {
+            switch CALENDAR.season() {
+                case Season.Spring: return "Music/Playlists/Spring Year 2 Plus";
+                case Season.Summer: return "Music/Playlists/Summer Year 2 Plus";
+                case Season.Fall: return "Music/Playlists/Fall Year 2 Plus";
+                case Season.Winter: return "Music/Playlists/Winter Year 2 Plus";
+            }
+        } else {
+            switch CALENDAR.season() {
+                case Season.Spring: return "Music/Playlists/Spring";
+                case Season.Summer: return "Music/Playlists/Summer";
+                case Season.Fall: return "Music/Playlists/Fall";
+                case Season.Winter: return "Music/Playlists/Winter";
+            }
         }
     }
 

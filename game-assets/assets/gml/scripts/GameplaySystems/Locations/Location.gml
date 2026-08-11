@@ -110,6 +110,7 @@ function load_locations() {
             bug_boxes,
             bug_water_boxes,
             safe_position: location[$ "safe_position"],
+            wall_shadows: location["wall_shadows"],
         };
     }
 }

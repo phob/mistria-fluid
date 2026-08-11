@@ -108,7 +108,9 @@ function BarkEmitter(owner, x_offset=0, y_offset=0) constructor {
 
         if self.state == BarkState.Sit {
             gpu_set_srgb_blending(false);
-            draw_sprite_ext(self.active_bark.icon, self.icon_index, xx, yy, abs(self.owner.image_xscale), self.owner.image_yscale, 0, c_white, BARK_MIN_ALPHA);
+            gpu_set_extra(UberShaderKind.NoSrgb);
+            draw_sprite_ext(self.active_bark.icon, self.icon_index, xx, yy, abs(self.owner.image_xscale), self.owner.image_yscale, 0, c_white, self.active_bark.opacity);
+            gpu_reset_extra();
             gpu_set_srgb_blending(true);
         }
     }

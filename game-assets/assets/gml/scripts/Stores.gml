@@ -29,7 +29,7 @@ function load_stores() {
 
                     stock[i] = {
                         item,
-                        requirements: entry[$ "requirements"] != undefined ? parse_requirements(entry.requirements) : [],
+                        requirements: parse_requirements(entry[$ "requirements"] ?? {}),
                         attached_recipe: undefined,
                     };
 

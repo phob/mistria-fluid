@@ -48,15 +48,13 @@ object_create(
             self.bouncer.status = InteractBounceStatus.Distant;
 
             //
-            if has_flag(PAUSE_STATUS, PauseStatus.MENU) {
+            if has_flag(PAUSE_STATUS, PauseStatus.MENU)
+                || has_flag(PAUSE_STATUS, PauseStatus.CUTSCENE)
+            {
                 return;
             }
 
-            var target = 0;
-            if distance_to_ari_interactable() < STANDARD_INTERACTION_DISTANCE {
-                target = BARK_MIN_ALPHA;
-            }
-            self.bouncer.alpha = approach(self.bouncer.alpha, target, BARK_FADE_SPEED);
+            self.bouncer.alpha = approach(self.bouncer.alpha, BARK_MIN_ALPHA, BARK_FADE_SPEED);
             var is_being_selected = self.bouncer.update();
 
             if is_being_selected {

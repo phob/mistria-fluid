@@ -6,7 +6,7 @@
 #macro PORTRAIT_X -90
 #macro PORTRAIT_Y -65
 #macro PORTRAIT_X_OFFSET 30
-#macro TEXT_Y 5
+#macro TEXT_Y 4
 #macro EASE_LENGTH 12
 #macro TEXTBOX_NAMEBOX_BACK_PADDING 25
 
@@ -194,6 +194,68 @@ function filter_text_for_textbox(input_text) {
                     }
                 }
                 break;
+            case "ten_heart_romantic":
+                str = "MISSING";
+                for (var j = 0; j < NpcId.LEN; j++) {
+                    if NPCS[j].is_partner() && NPCS[j].heart_level() == 10 {
+                        str = local_get(NPC_PROTOTYPES[j].name);
+                    }
+                }
+                break;
+            case "fiance":
+                str = "MISSING";
+                for (var j = 0; j < NpcId.LEN; j++) {
+                    if NPCS[j].is_fiance() {
+                        str = local_get(NPC_PROTOTYPES[j].name);
+                        break;
+                    }
+                }
+                break;
+            case "spouse":
+                str = "MISSING";
+                for (var j = 0; j < NpcId.LEN; j++) {
+                    if NPCS[j].is_spouse() {
+                        str = local_get(NPC_PROTOTYPES[j].name);
+                        break;
+                    }
+                }
+                break;
+            case "most_eaten_dish":
+                str = local_get(ITEM_PROTOTYPES[ItemId.WildBerries].name_key);
+                var eaten = GAME_STATS.items_eaten;
+                var eaten_counts = array_create(ItemId.LEN, 0);
+                var is_dish = array_create(ItemId.LEN, undefined);
+                var best_item = undefined;
+                var best_count = 0;
+
+                for (var j = 0, c = array_length(GAME_STATS.items_eaten); j < c; j++) {
+                    var eaten_id = try_string_to_item_id( GAME_STATS.items_eaten[j].item);
+                    if eaten_id == undefined {
+                        continue;
+                    }
+
+                    var dish = is_dish[eaten_id];
+                    if dish == undefined {
+                        var eaten_proto = ITEM_PROTOTYPES[eaten_id];
+                        dish = eaten_proto.tags.contains("food");
+                        is_dish[eaten_id] = dish;
+                    }
+                    if !dish {
+                        continue;
+                    }
+
+                    var eaten_count = eaten_counts[eaten_id] + 1;
+                    eaten_counts[eaten_id] = eaten_count;
+                    if eaten_count > best_count {
+                        best_count = eaten_count;
+                        best_item = eaten_id;
+                    }
+                }
+
+                if best_item != undefined {
+                    str = local_get(ITEM_PROTOTYPES[best_item].name_key);
+                }
+                break;
 
             default:
                 crash("Unrecognized tag: {}", tag);
@@ -203,7 +265,7 @@ function filter_text_for_textbox(input_text) {
         //
         //
         str = string(str);
-        
+
         input_text = string_replace_all(
             input_text,
             tag,
@@ -292,7 +354,7 @@ function TextboxMenu() : AnchorMenu(Menu.Textbox) constructor {
         .set_align(Align.RightIn, Align.BottomIn)
 
     self.namebox_text = ANCHOR.text(self.namebox_front, TextboxDepthLevel.NameboxText)
-        .set_xy(6, 0)
+        .set_xy(6, -1)
         .set_text("UNSET")
         .set_align(Align.LeftIn, Align.Middle)
         .set_lut(spr_ui_dialogue_font_lut, 2)
@@ -319,6 +381,14 @@ function TextboxMenu() : AnchorMenu(Menu.Textbox) constructor {
                 self.namebox_heart.set_index(0);
             }
         })
+
+    //
+    if matches(local_language(), "jpn", "zh-Hant", "zh-Hans", "kor") {
+        self.namebox_back.add_height(2);
+        self.namebox_back.add_y(-2);
+        self.namebox_front.add_height(2);
+        self.namebox_text.add_y(1);
+    }
 
     var textbox_width = fiddle_get("ui/misc/textbox_pixel_width");
 
@@ -370,13 +440,24 @@ function TextboxMenu() : AnchorMenu(Menu.Textbox) constructor {
     for (var i = 0; i < 3; i++) {
         var box = a[i];
 
+        box.set_locked_sprite(spr_ui_dialogue_box_disabled);
+
         box.reset_sprites = method(box, function() {
+            self.set_sprites_from_key("spr_ui_dialogue_box");
             if self.blackboard.get("pink") == true {
                 self.set_sprites_from_key("spr_ui_dialogue_box_pink");
                 self.tab.enable();
+
+                if !ARI.disable_break_ups && (ARI.spouse() != undefined || ARI.fiance() != undefined) {
+                    self.set_sprites_from_key("spr_ui_dialogue_box_grey");
+                    self.blackboard.insert("stay_locked", true);
+                    self.tab.set_key_sprite_target(self.tab);
+                    self.tab.lock();
+                }
             } else {
-                self.set_sprites_from_key("spr_ui_dialogue_box");
+                self.tab.unlock();
                 self.tab.disable();
+                self.tab.set_key_sprite_target(self);
             }
 
             self.locked_sprite = self.enabled_sprite;
@@ -404,7 +485,6 @@ function TextboxMenu() : AnchorMenu(Menu.Textbox) constructor {
             .set_xy(8, 5)
             .set_align(Align.LeftIn, Align.TopIn)
             .set_max_width(prompt_pixel_width)
-            .set_line_height(12)
 
         box.tab = ANCHOR.sprite(box)
             .set_align(Align.RightIn, Align.TopIn)
@@ -566,7 +646,7 @@ function TextboxMenu() : AnchorMenu(Menu.Textbox) constructor {
             )
             .join(
                 LinkId.Ease,
-                new Ease(EaseId.QuartOut, base_two_x - PORTRAIT_X_OFFSET + 180 - cut_off_diff, base_two_x + 180, 15),
+                new Ease(EaseId.QuartOut, base_two_x - PORTRAIT_X_OFFSET + 220 - cut_off_diff, base_two_x + 220, 15),
                 function(_, ab) {
                     self.portrait_two.set_x(ab);
                 }
@@ -598,7 +678,7 @@ function TextboxMenu() : AnchorMenu(Menu.Textbox) constructor {
             )
             .join(
                 LinkId.Ease,
-                new Ease(EaseId.QuartOut, base_two_x + 180, base_two_x - PORTRAIT_X_OFFSET + 180 - cut_off_diff, 15),
+                new Ease(EaseId.QuartOut, base_two_x + 220, base_two_x - PORTRAIT_X_OFFSET + 220 - cut_off_diff, 15),
                 function(_, ab) {
                     self.portrait_two.set_x(ab);
                 }
@@ -633,14 +713,18 @@ function TextboxMenu() : AnchorMenu(Menu.Textbox) constructor {
                 }, [box])
         }
         self.chain.append(LinkId.Function, function() {
-            if self.prompt_one.blackboard.try_take("stay_locked") != true {
-                self.prompt_one.unlock();
-            }
-            if self.option_count > 1 && self.prompt_two.blackboard.try_take("stay_locked") != true {
+            var stay_locked = self.prompt_one.blackboard.try_take("stay_locked") == true;
+            self.prompt_one.unlock();
+            self.prompt_one.set_soft_locked(stay_locked);
+            if self.option_count > 1 {
+                var stay_locked = self.prompt_two.blackboard.try_take("stay_locked") == true;
                 self.prompt_two.unlock();
+                self.prompt_two.set_soft_locked(stay_locked);
             }
-            if self.option_count > 2 && self.prompt_three.blackboard.try_take("stay_locked") != true {
+            if self.option_count > 2 {
+                var stay_locked = self.prompt_three.blackboard.try_take("stay_locked") == true;
                 self.prompt_three.unlock();
+                self.prompt_three.set_soft_locked(stay_locked);
             }
             self.prompt_pilot.goto_default();
             ANCHOR.set_active_pilot(self.prompt_pilot);
@@ -723,6 +807,8 @@ function TextboxMenu() : AnchorMenu(Menu.Textbox) constructor {
             .append(LinkId.Timer, FADE_SPEED_CUTSCENE)
             .append(LinkId.Function, function() {
                 self.current_speaker = undefined; //
+                self.namebox_back.disable(); //
+                self.text.set_speaker_sound_path("SoundEffects/NPCs/Vocal/TextBlipGeneric");
                 self.canvas.set_alpha(1);
             })
     }
@@ -739,7 +825,8 @@ function TextboxMenu() : AnchorMenu(Menu.Textbox) constructor {
         self.prompt_selected = undefined;
         self.text.set_y(TEXT_Y);
         self.text.set_alpha(1);
-        self.text.play(filter_text_for_textbox(local_get(local_key)));
+        self.text.set_ghost_key(local_key);
+        self.text.play(local_get(local_key));
     }
 
     //
@@ -800,6 +887,18 @@ function TextboxMenu() : AnchorMenu(Menu.Textbox) constructor {
                 .outfit_current
                 .portraits
                 .get("pained");
+            self.portrait_two
+                .set_speed(0.8)
+                .set_sprite(s)
+                .set_index(1);
+        }
+
+        if MIST.blackboard.get("linnet_textbox_hack") == true {
+            var s = MIST.cameos.get(CameoId.Wiscar)
+                .wardrobe
+                .outfit_current
+                .portraits
+                .get("happy");
             self.portrait_two
                 .set_speed(0.8)
                 .set_sprite(s)
@@ -925,9 +1024,12 @@ function TextboxMenu() : AnchorMenu(Menu.Textbox) constructor {
                         var yy = PROMPT_BOTTOM_Y;
                         for (var i = self.option_count - 1; i >= 0; i--) {
                             var box = a[i];
-                            var text = filter_text_for_textbox(local_get(translation_order.option_keys[i]));
-                            var height = ANCHOR.text_height(text, box.text_label.get_max_width()) + 10;
-                            box.text_label.set_text(text);
+                            var key = translation_order.option_keys[i];
+                            box.text_label
+                                .set_ghost_key(key)
+                                .set_text(filter_text_for_textbox(local_get(key)))
+
+                            var height = box.text_label.measure().y + 10;
                             box
                                 .set_height(height)
                                 .set_y(yy)
@@ -1211,8 +1313,10 @@ function Speaker(id) constructor {
     self.identity = undefined; //
 
     function set_portrait(portrait) {
+        var effect = undefined;
+
         while true {
-            sprite = self.me.wardrobe.outfit_current.portraits.get(portrait);
+            var sprite = self.me.wardrobe.outfit_current.portraits.get(portrait);
             if sprite == undefined {
                 effect = undefined;
 
@@ -1251,6 +1355,10 @@ function NpcSpeaker(id) : Speaker(id) constructor {
             return "misc_local/seridia_and_caldarus";
         }
 
+        if MIST.blackboard.get("linnet_textbox_hack") == true {
+            return "misc_local/linnet_and_wiscar";
+        }
+
         if self.id == NpcId.Seridia {
             if MIST.blackboard.get("head_priestess") == true {
                 return "misc_local/head_priestess"; //
@@ -1270,7 +1378,7 @@ function NpcSpeaker(id) : Speaker(id) constructor {
 
         var baby = undefined;
         var child = self.me.held_child();
-        if child != undefined {
+        if child != undefined && self.me.wardrobe.outfit_name != "dragon_statue" {
             baby = string_to_asset(format(
                 "spr_portrait_{NpcId}_baby_{ChildId}_{ChildSkinTone}",
                 self.id,
@@ -1329,7 +1437,7 @@ function CameoSpeaker(id) : Speaker(id) constructor {
     assert(MIST.is_running(), "Cameos can only be used during cutscenes!");
     self.me = MIST.cameos.get(self.id);
     self.identity = cameo_id_to_string(self.id);
-    self.blip_sound = "SoundEffects/NPCs/Vocal/TextBlipGeneric"; //
+    self.blip_sound = self.me.prototype.voice;
 
     var off = fiddle_get(format("cameos/{}/offsets/portrait", self.identity));
     self.offset = Vec2(off[0], off[1]);
@@ -1349,10 +1457,24 @@ function CameoSpeaker(id) : Speaker(id) constructor {
 
         assert_neq(sprite, undefined, "Failed to get '{}' for {}", self.portrait, self.identity);
 
+        var baby = undefined;
+        if MIST.blackboard.get("stork_child_portrait") == true {
+            if array_is_empty(ARI.children) {
+                var child = potential_child();
+            } else {
+                var child = ARI.children[0];
+            }
+            baby = string_to_asset(format(
+                "spr_portrait_great_bird_baby_{ChildId}_{ChildSkinTone}",
+                child.id,
+                child.skin_tone,
+            ));
+        }
+
         return {
             sprite,
             override_sound,
-            baby: undefined,
+            baby,
             effect: self.effect,
         };
     }

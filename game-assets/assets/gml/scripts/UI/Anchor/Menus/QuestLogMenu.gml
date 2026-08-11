@@ -2,6 +2,7 @@ enum QuestLogContext {
     Journal,
     RequestBoard,
     TaliChallengeBoard,
+    StillwellChallengeBoard,
     LEN
 }
 
@@ -33,7 +34,12 @@ function QuestLogMenu(journal, context) : AnchorMenu(Menu.QuestLog) constructor 
                 break;
             case QuestLogContext.TaliChallengeBoard:
                 title = "misc_local/cooking_challenges";
-                //
+                self.journal.book.set_sprite(spr_ui_taliferro_quest_backplate);
+                self.journal.left_page.set_sprite(spr_ui_taliferro_quest_frontplate_left);
+                self.journal.right_page.set_sprite(spr_ui_taliferro_quest_frontplate_right);
+                break;
+            case QuestLogContext.StillwellChallengeBoard:
+                title = "misc_local/mission_quests";
                 self.journal.book.set_sprite(spr_ui_taliferro_quest_backplate);
                 self.journal.left_page.set_sprite(spr_ui_taliferro_quest_frontplate_left);
                 self.journal.right_page.set_sprite(spr_ui_taliferro_quest_frontplate_right);
@@ -96,6 +102,13 @@ function QuestLogMenu(journal, context) : AnchorMenu(Menu.QuestLog) constructor 
                     active_list.push(challenge);
                 }
                 break;
+            case QuestLogContext.StillwellChallengeBoard:
+                active_list = List()
+                var challenge = available_stillwell_challenge();
+                if challenge != undefined {
+                    active_list.push(challenge);
+                }
+                break;
             default: impossible("Unexpected QuestLogContext: {QuestLogContext}", self.context);
         }
 
@@ -125,6 +138,12 @@ function QuestLogMenu(journal, context) : AnchorMenu(Menu.QuestLog) constructor 
                     .set_x(28)
                     .set_align(Align.LeftIn, Align.Middle)
                     .set_max_width(111)
+
+                //
+                var overflow = element.text_label.measure().y - element.get_height();
+                if overflow > 0 {
+                    self.left_scroller.add_height_to_element(element, overflow + 6);
+                }
 
                 ANCHOR.sprite(element)
                     .set_sprite(get_npc_icon(quest.npc_for_icon))
@@ -225,13 +244,22 @@ function QuestLogMenu(journal, context) : AnchorMenu(Menu.QuestLog) constructor 
         element.text_label.prevent_spillover(false);
 
         //
+        var force = !local_has_translation(local_language(), quest.description);
         var description_text = filter_text_for_textbox(local_get(quest.description));
-        var full_height = ANCHOR.text_height(description_text, element.text_label.get_max_size().x) + 8;
-        var short_text = elide_text(description_text, element.text_label.get_max_size().x, 2);
+        var full_height = ANCHOR.text_height(description_text, element.text_label.get_max_size().x, undefined, undefined, force) + 8;
+        var short_text = elide_text(description_text, element.text_label.get_max_size().x, 2, true, undefined, force);
+
+        //
+        var ellipses = local_get(fiddle_get("misc_local/ellipses"));
+        if force {
+            short_text = string_replace(short_text, ellipses, "...");
+        }
+
+        element.text_label.set_ghost_key(quest.description);
         element.text_label.set_text(short_text);
 
         //
-        if string_pos(local_get(fiddle_get("misc_local/ellipses")), short_text) {
+        if string_pos(ellipses, short_text) {
             //
             var expand_arrow = ANCHOR.sprite(element)
                 .set_sprites_from_key("spr_ui_journal_quests_expand_arrow_icon")
@@ -277,17 +305,15 @@ function QuestLogMenu(journal, context) : AnchorMenu(Menu.QuestLog) constructor 
                 //
                 var objective = quest.tasks.get(i);
 
-                //
                 var element = self.right_scroller.new_element(0)
-                var height = ANCHOR.text_height(local_get(objective.description), 151) + 8;
-
-                var element = self.right_scroller.new_element(height)
                     .add_text_label(objective.description)
                     .add_to_pilot(self.right_pilot, true);
 
                 element.text_label
                     .set_align(Align.LeftIn, Align.TopIn)
                     .set_xy(4, 4)
+
+                self.right_scroller.add_height_to_element(element, element.text_label.measure().y + 8);
 
                 if i != max_index {
                     element.text_label
@@ -300,13 +326,11 @@ function QuestLogMenu(journal, context) : AnchorMenu(Menu.QuestLog) constructor 
                 gather_listings_from_requirements(objective.requirements, active_blackboard).for_each(function(listing) {
                     static MAX_WIDTH = 121;
 
-                    var label = listing_label(listing);
-                    var root_height = ANCHOR.text_height(label, MAX_WIDTH) + 8;
-
-                    var element = self.right_scroller.new_element(root_height)
+                    var element = self.right_scroller.new_element(0)
                         .add_to_pilot(self.right_pilot, true)
 
-                    render_quest_requirement(listing, element, MAX_WIDTH);
+                    var nodes = render_quest_requirement(listing, element, MAX_WIDTH);
+                    self.right_scroller.add_height_to_element(element, nodes.name.measure().y + 8);
                 });
             }
         }
@@ -329,18 +353,16 @@ function QuestLogMenu(journal, context) : AnchorMenu(Menu.QuestLog) constructor 
             rewards.for_each(function(listing) {
                 static MAX_WIDTH = 121;
 
-                var label = listing_label(listing);
-                var root_height = ANCHOR.text_height(label, MAX_WIDTH) + 8;
-
-                var element = self.right_scroller.new_element(root_height)
+                var element = self.right_scroller.new_element(0)
                     .add_to_pilot(self.right_pilot, true)
 
-                render_quest_reward(listing, element, MAX_WIDTH);
+                var nodes = render_quest_reward(listing, element, MAX_WIDTH);
+                self.right_scroller.add_height_to_element(element, nodes.name.measure().y + 8);
             });
         }
 
         //
-        if self.context == QuestLogContext.RequestBoard || self.context == QuestLogContext.TaliChallengeBoard {
+        if matches(self.context, QuestLogContext.RequestBoard,QuestLogContext.TaliChallengeBoard, QuestLogContext.StillwellChallengeBoard) {
             var element = self.right_scroller.new_element(36)
                 .set_sprite(spr_nothing_nineslice)
             ANCHOR.nine_slice(element)
@@ -355,20 +377,13 @@ function QuestLogMenu(journal, context) : AnchorMenu(Menu.QuestLog) constructor 
                 .set_tap_callback(function() {
                     QUEST_LOG.start(self.active_quest);
 
-                    if context != QuestLogContext.TaliChallengeBoard {
+                    if !matches(context, QuestLogContext.TaliChallengeBoard, QuestLogContext.StillwellChallengeBoard) {
                         REQUEST_BOARD.remove(REQUEST_BOARD.find_lazy(self.active_quest));
                     }
 
                     if QUESTS.get(self.active_quest).category == QuestCategory.Crown {
                         ARI.crown_cooldown = 7;
                     }
-
-                    //
-                    //
-                    //
-                    //
-                    //
-                    //
 
                     var position_for_scroller = self.left_scroller.get_current_y();
                     self.setup_left_page(position_for_scroller);
@@ -427,7 +442,7 @@ function gather_listings_from_quest_rewards(rewards) {
                 break;
             case QuestRewardType.Renown:
                 a.push(Listing.Custom(
-                    spr_ui_eod_summary_renown_header_icon,
+                    spr_ui_journal_inventory_renown_icon_large,
                     "misc_local/renown",
                     reward.value,
                 ));
@@ -558,6 +573,22 @@ function try_requirement_to_listing(requirement, data, blackboard) {
                 data[1],
                 ari_has,
             );
+        case Requirement.DefeatedMonster:
+            var ari_has = 0;
+            if blackboard != undefined {
+                var starting_amount = blackboard.get(format("{MonsterCategory}_needed", data[0])) - data[1];
+                ari_has = ARI.monsters_killed(data[0]) - starting_amount;
+            } else {
+                ari_has = 0;
+            }
+            var info = monster_category_to_ui_info(data[0]);
+            return Listing.Custom(
+                info.icon,
+                info.label,
+                data[1],
+                ari_has,
+            );
+            break;
         case Requirement.Custom:
             if data[$ "gather"] != undefined {
                 var item = string_to_item_id(data.gather.item);
@@ -573,13 +604,15 @@ function try_requirement_to_listing(requirement, data, blackboard) {
     }
 }
 
+//
+//
 function render_quest_requirement(listing, element, max_width) {
     var icon = ANCHOR.sprite(element)
         .set_sprite(listing_icon(listing))
         .set_x(2)
         .set_align(Align.LeftIn, Align.Middle)
 
-    ANCHOR.text(icon)
+    var name = ANCHOR.text(icon)
         .set_text(listing_label(listing))
         .set_x(2)
         .set_max_width(max_width)
@@ -603,9 +636,15 @@ function render_quest_requirement(listing, element, max_width) {
             .set_x(-2)
             .set_sprite(sub)
     }
+
+    return {
+        icon,
+        name,
+        count,
+    }
 }
 
-function render_quest_reward(listing, element) {
+function render_quest_reward(listing, element, max_width) {
     var icon = ANCHOR.sprite(element)
         .set_sprite(listing_icon(listing))
         .set_x(2)
@@ -614,7 +653,7 @@ function render_quest_reward(listing, element) {
     var name = ANCHOR.text(icon)
         .set_text(listing_label(listing))
         .set_x(4)
-        .set_max_width(element.get_width() - 31)
+        .set_max_width(max_width ?? element.get_width() - 31)
         .set_align(Align.RightOut, Align.Middle)
         .set_lut(COMMON_LUT)
 
@@ -738,13 +777,12 @@ function __base_quest_popup(title, description, listings, renderer, max_width=12
             var yy = 0;
             for (var i = popup.start_index; i < min(popup.start_index + 5, listings.count()); i++) {
                 var listing = listings.get(i);
-                var label = listing_label(listing);
-                var root_height = ANCHOR.text_height(label, max_width) + 8;
                 var root = ANCHOR.positional(popup.inner_root)
-                    .set_size(161, root_height)
+                    .set_width(161)
                     .set_y(yy)
 
-                renderer(listing, root, max_width);
+                var root_height = renderer(listing, root, max_width).name.measure().y + 8;
+                root.set_height(root_height);
                 yy += root_height;
 
                 if is_expanded {
@@ -849,11 +887,19 @@ function spawn_tali_challenge_menu() {
     return menu;
 }
 
+function spawn_stillwell_challenge_menu() {
+    var baby = ANCHOR.spawn_menu(Menu.BabyJournal);
+    var menu = ANCHOR.spawn_menu(Menu.QuestLog, baby, QuestLogContext.StillwellChallengeBoard);
+    baby.sub_menu = menu;
+    return menu;
+}
+
 #macro CATEGORY_VISUALS global.__quest_category_visuals
 CATEGORY_VISUALS = [
     { title: "misc_local/story_quests", icon: spr_ui_journal_quests_story_header_icon },
     { title: "misc_local/crown_requests", icon: spr_ui_journal_quests_renown_subicon },
-    { title: "misc_local/cooking_challenges", icon: spr_ui_journal_quests_renown_subicon }, //
+    { title: "misc_local/cooking_challenges", icon: spr_ui_journal_quests_taliferro_header_icon },
+    { title: "misc_local/mission_quests", icon: spr_ui_journal_quests_stillwell_mission_header_icon },
     { title: "misc_local/heart_quests", icon: spr_ui_journal_quests_heart_header_icon },
     { title: "misc_local/requests", icon: spr_ui_journal_quests_fetch_header_icon },
 ];

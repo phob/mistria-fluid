@@ -289,7 +289,7 @@ function AnimalMenu() : AnchorMenu(Menu.Animal) constructor {
             );
 
             var job_key = PET.job == undefined
-                ? "misc_local/none"
+                ? "misc_local/none_alt"
                 : format("misc_local/pet_job_{PetJob}", PET.job);
 
             self.job_field = self.fields.new_field(spr_ui_generic_job_icon, local_get(job_key), CommonLutIndex.Blue);
@@ -324,7 +324,7 @@ function AnimalMenu() : AnchorMenu(Menu.Animal) constructor {
                                     if instance_exists(obj_ari)  {
                                         obj_ari.par.remove_held_sprite();
                                         obj_ari.par.unset_modifier(AnimationName.Pickup);
-                                        obj_ari.par.held_item_render_callback = undefined;
+                                        obj_ari.par.held_animal_render_callback = undefined;
                                     }
                                 }
                                 PET.job = job;
@@ -588,12 +588,28 @@ function AnimalMenu() : AnchorMenu(Menu.Animal) constructor {
                     && ARI.perk_active(Perk.NiceRide);
             });
 
-        //
-        //
+        if ARI.animal_variant_unlocks[AnimalKind.Horse].contains("giant_chicken_gold") {
+            var chicken_gold = create_default_mount("giant_chicken_gold");
+            if animals.is_empty() {
+                animals.push(chicken_gold);
+            } else {
+                animals.insert(chicken_gold, 0);
+            }
+        }
+        if ARI.animal_variant_unlocks[AnimalKind.Horse].contains("giant_chicken_white") {
+            var chicken_white = create_default_mount("giant_chicken_white");
+            if animals.is_empty() {
+                animals.push(chicken_white);
+            } else {
+                animals.insert(chicken_white, 0);
+            }
+        }
+
+        var mistmare = create_default_mount("mistmare");
         if animals.is_empty() {
-            animals.push(create_default_mount());
+            animals.push(mistmare);
         } else {
-            animals.insert(create_default_mount(), 0);
+            animals.insert(mistmare, 0);
         }
 
         for (var i = 0; i < animals.count(); i++) {
@@ -739,10 +755,10 @@ function populate_scroller_with_farm_buildings(scroller, pilot, size_restriction
 
 function spawn_pet_appearance_popup() {
     var popup = popup_creator("misc_local/select_an_appearance");
-    popup.backplate.set_size(180, 48);
+    popup.backplate.set_size(256, 48);
 
     var order = fiddle_get("ui/misc/pet_variant_order");
-    var layout = new GridLayout(ListFromArray(order), popup.pilot, 6);
+    var layout = new GridLayout(ListFromArray(order), popup.pilot, 10);
 
     var container_size = layout.container_size();
     var container = ANCHOR.positional(popup.backplate)

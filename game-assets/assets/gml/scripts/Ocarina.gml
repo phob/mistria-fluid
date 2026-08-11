@@ -58,6 +58,11 @@ function activate_ocarina(node) {
                 }
             }
 
-            return node.renderer.image_index == 0;
+            if node.renderer.image_index == 0 {
+                node.renderer.image_speed = 0;
+                return true;
+            } else {
+                return false;
+            }
         }));
 }

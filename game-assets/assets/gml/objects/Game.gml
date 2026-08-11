@@ -48,6 +48,10 @@ var game_obj = object_create(
                 MUSIC_PLAYER.stop();
                 AMBIENCE_PLAYER.stop();
                 WEATHER.stop_atmosphere_sounds();
+
+                for (var i = 0; i < Season.LEN; i++) {
+                    portrait_atlas_unload(season_to_portrait_atlas(i));
+                }
             }
 
             //
@@ -69,12 +73,222 @@ var game_obj = object_create(
                 MINUTES_PER_DAY = 15;
                 PET = undefined;
                 FACTORIES.clear();
+                t2_reset_world();
+                clear_loaded_date_photos();
+            }
+
+            function draw_lights() {
+                if DEBUG_TOOLS {
+                    gpu_push_group("lights");
+                }
+
+                gpu_set_srgb_blending(false);
+                var is_dark_mines = in_dark_mines();
+
+                //
+                //
+                //
+                //
+                gpu_set_blendmode_ext(
+                    bm_dest_color,
+                    bm_inv_src_alpha,
+                );
+
+                gpu_set_stencil_operation(StencilOperation.Replace);
+                gpu_set_depth_test(is_dark_mines ? cmpfunc_always : cmpfunc_lessequal, false);
+
+                var write_strength = POST_PROCESS.multiply_color[3];
+                var final_write_strength = write_strength;
+
+                if POST_PROCESS.multiply_by_light_count {
+                    if is_home_location(CURRENT_LOCATION_ID) {
+                        var diff_value = (write_strength - POST_PROCESS.min_multiply_level) * 0.5;
+                        var new_target = diff_value * 2.0 * (1.0 - power(0.5, instance_number(par_light)));
+
+                        self.last_alpha_edit_amount = approach(self.last_alpha_edit_amount, new_target, 0.003);
+                        write_strength = max(
+                            write_strength - self.last_alpha_edit_amount,
+                            POST_PROCESS.min_multiply_level
+                        );
+                        final_write_strength = write_strength;
+                    } else if is_dark_mines {
+                        var new_target = undefined;
+                        if ARI.status_effects.effects.get(StatusEffectId.SacredLight) != undefined {
+                            new_target = 0.55;
+                        } else if self.dark_room_target_override != undefined {
+                            new_target = self.dark_room_target_override;
+                        } else {
+                            new_target = lerp(
+                                POST_PROCESS.min_multiply_level,
+                                write_strength,
+                                self.dark_room_light_count / POST_PROCESS.multiply_by_light_count,
+                            );
+                        }
+
+                        self.last_alpha_edit_amount = approach(self.last_alpha_edit_amount, new_target, self.dark_room_transition_speed);
+                        write_strength = max(
+                            write_strength - self.last_alpha_edit_amount,
+                            POST_PROCESS.min_multiply_level
+                        );
+
+                        //
+                        final_write_strength = 0.09;
+                    } else {
+                        write_strength = POST_PROCESS.min_multiply_level;
+                        final_write_strength = write_strength;
+                    }
+                }
+
+                gpu_set_extra(UberShaderKind.Light);
+                var current_depth = gpu_get_depth();
+
+                var tier_alpha = array_create(3);
+                var tier_color = array_create(3);
+                for (var i = 0; i < 3; i++) {
+                    var s = POST_PROCESS.light_strength[3 - i];
+                    tier_alpha[i] = is_dark_mines ? min(s, write_strength) : s * write_strength;
+                    tier_color[i] = make_color_rgb(
+                        round(255 * POST_PROCESS.multiply_color[0] * tier_alpha[i]),
+                        round(255 * POST_PROCESS.multiply_color[1] * tier_alpha[i]),
+                        round(255 * POST_PROCESS.multiply_color[2] * tier_alpha[i]),
+                    );
+                }
+
+                var light_stencil_value = stencil_reserve_band(4);
+                var non_tiered_lights_exist = false;
+                for (var i = 0; i < 3; i++) {
+                    gpu_set_stencil_test(cmpfunc_greater, light_stencil_value - i);
+
+                    with par_light {
+                        if self.show == false
+                            || self.sprite_index == undefined
+                        {
+                            continue;
+                        }
+
+                        if self.tiered_light == undefined {
+                            non_tiered_lights_exist = true;
+                            continue;
+                        }
+
+                        var this_light_level = i - real(is_dark_mines && self["secondary"] != undefined);
+                        if this_light_level < 0 {
+                            continue;
+                        }
+
+                        var write_alpha = tier_alpha[i];
+                        var write_color = tier_color[i];
+                        var light_spr = LIGHTS[self.tiered_light][this_light_level];
+
+                        if is_dark_mines == false {
+                            gpu_set_depth(self.depth - sprite_get_yoffset(light_spr));
+                        }
+                        draw_sprite_ext(
+                            light_spr,
+                            self.image_index,
+                            self.x,
+                            self.y,
+                            self.image_xscale,
+                            self.image_yscale,
+                            0,
+                            write_color,
+                            write_alpha,
+                        );
+                    }
+                }
+
+                //
+                var exterior_window = instance_singleton(obj_exterior_window_interior);
+
+                if non_tiered_lights_exist || exterior_window != undefined {
+                    gpu_set_color_write(false);
+                }
+                with par_light {
+                    if self.show && self.tiered_light == undefined && self.sprite_index != undefined {
+                        gpu_set_depth(self.depth);
+
+                        draw_sprite_ext(
+                            self.sprite_index,
+                            self.image_index,
+                            self.x,
+                            self.y,
+                            self.image_xscale,
+                            self.image_yscale,
+                            0,
+                            0,
+                            0,
+                        );
+                    }
+                }
+
+                var exterior_window = instance_singleton(obj_exterior_window_interior);
+                if exterior_window != undefined {
+                    gpu_set_depth(exterior_window.depth);
+
+                    //
+                    //
+                    for (var yy = 0; yy < ds_grid_height(exterior_window.windows); yy++) {
+                        for (var xx = 0; xx < ds_grid_width(exterior_window.windows); xx++) {
+                            if exterior_window.windows[# xx, yy] {
+                                draw_sprite_ext(
+                                    spr_pixel,
+                                    0,
+                                    xx * 8,
+                                    yy * 8,
+                                    8,
+                                    8,
+                                    0,
+                                    0,
+                                    0,
+                                );
+                            }
+                        }
+                    }
+                }
+
+                //
+                if non_tiered_lights_exist || exterior_window != undefined {
+                    gpu_set_color_write(true);
+                }
+
+                gpu_set_depth(current_depth);
+                gpu_set_stencil_test(cmpfunc_greater, light_stencil_value - 3);
+                gpu_set_depth_test(cmpfunc_always);
+
+                //
+                //
+                final_write_strength = max(final_write_strength, write_strength);
+
+                draw_sprite_ext(
+                    spr_pixel,
+                    0,
+                    CAMERA.internal_cam_pos.x - CAMERA.x_buffer,
+                    CAMERA.internal_cam_pos.y - CAMERA.y_buffer,
+                    CAMERA.view_width + (CAMERA.x_buffer * 2),
+                    CAMERA.view_height + (CAMERA.y_buffer * 2),
+                    0,
+                    make_color_rgb(
+                        round(255 * POST_PROCESS.multiply_color[0] * final_write_strength),
+                        round(255 * POST_PROCESS.multiply_color[1] * final_write_strength),
+                        round(255 * POST_PROCESS.multiply_color[2] * final_write_strength),
+                    ),
+                    final_write_strength,
+                );
+                gpu_set_srgb_blending(true);
+                gpu_set_blendmode_ext(bm_src_alpha, bm_inv_src_alpha);
+                gpu_disable_stencil();
+                gpu_reset_extra();
+                if DEBUG_TOOLS {
+                    gpu_pop_group();
+                }
             }
 
             //
             self.unique_identifier = self.load_state.game_ident;
             self.last_serde_path = undefined;
             self.play_time_comparator = undefined;
+
+            self.bell_sound_instance = undefined;
 
             switch self.load_state.type {
                 case LoadStateId.Load:
@@ -210,24 +424,46 @@ var game_obj = object_create(
             //
             if self.bell_rang == false && CLOCK.time >= NIGHT_TIME {
                 if CLOCK.time <= (NIGHT_TIME + minutes(5)) {
+                    var sound = bell_sound_path();
+                    var sprite_mapping = undefined;
+                    var sound_position = undefined;
+
                     if CURRENT_LOCATION_ID == LocationId.Town {
-                        TANGO.play("SoundEffects/SpecialEvents/8pmBell3D", 527, 1162);
+                        sound_position = Vec2(527, 1162);
+                        sprite_mapping = [
+                            spr_town_building_bell_tower_bell_idle,
+                            spr_town_building_bell_tower_bell_ring,
+                        ];
+                    }
+
+                    if CURRENT_LOCATION_ID == LocationId.BellTowerF2 {
+                        sprite_mapping = [
+                            spr_bell_tower_f2_bell_idle,
+                            spr_bell_tower_f2_bell_ring,
+                        ];
+                    }
+
+                    if sound_position == undefined {
+                        self.bell_sound_instance = TANGO.play(sound);
+                    } else {
+                        self.bell_sound_instance = TANGO.play(sound, sound_position.x, sound_position.y);
+                    }
+
+                    if sprite_mapping != undefined {
                         with obj_assetobject {
-                            if self.sprite_index == spr_town_building_bell_tower_bell_idle {
+                            if self.sprite_index == sprite_mapping[0] {
                                 self.image_index = 0;
-                                self.sprite_index = spr_town_building_bell_tower_bell_ring;
+                                self.sprite_index = sprite_mapping[1];
                                 new_world_chain(self, CURRENT_LOCATION_ID)
-                                    .append(LinkId.Timer, 240)
-                                    .append(LinkId.Function, function(asset) {
-                                        asset.sprite_index = spr_town_building_bell_tower_bell_idle;
-                                    }, [self]);
+                                    .append(LinkId.Await, function() {
+                                        return !TANGO.instance_alive(Game.bell_sound_instance);
+                                    })
+                                    .append(LinkId.Function, function(asset, sprite_mapping) {
+                                        asset.sprite_index = sprite_mapping[0];
+                                    }, [self, sprite_mapping]);
                                 break;
                             }
                         }
-                    } else if is_dungeon_room(room()) || CURRENT_LOCATION_ID == LocationId.MinesEntry {
-                        TANGO.play("SoundEffects/SpecialEvents/8pmBellFromMines");
-                    } else {
-                        TANGO.play("SoundEffects/SpecialEvents/8pmBell2D");
                     }
                 }
                 self.bell_rang = true;
@@ -266,7 +502,7 @@ var game_obj = object_create(
                 self.late_warning_issued = true;
             }
 
-            if self.turned_on_lights == false && CLOCK.time >= LIGHT_TURN_ON_TIME {
+            if self.turned_on_lights == false && CLOCK.time >= LIGHT_TURN_ON_TIME || MIST.blackboard.get("force_lights_on") == true {
                 with obj_exterior_light {
                     self.turn_on();
                 }
@@ -378,212 +614,10 @@ var game_obj = object_create(
             }
         },
         draw: function() {
+            draw_extra_shadow_maps();
             WEATHER.on_draw();
-
             if POST_PROCESS != undefined && POST_PROCESS.should_post_process {
-                if DEBUG_TOOLS {
-                    gpu_push_group("lights");
-                }
-
-                gpu_set_srgb_blending(false);
-                var is_dark_mines = in_dark_mines();
-                gpu_set_blendmode_ext(
-                    bm_dest_color,
-                    bm_inv_src_alpha,
-                );
-                //
-
-                draw_clear_stencil(0);
-                gpu_set_stencil_operation(StencilOperation.Replace);
-                gpu_set_depth_test(cmpfunc_lessequal);
-
-                var write_strength = POST_PROCESS.multiply_color[3];
-                var final_write_strength = write_strength;
-
-                if POST_PROCESS.multiply_by_light_count {
-                    if is_home_location(CURRENT_LOCATION_ID) {
-                        var diff_value = (write_strength - POST_PROCESS.min_multiply_level) * 0.5;
-                        var new_target = diff_value * 2.0 * (1.0 - power(0.5, instance_number(par_light)));
-
-                        self.last_alpha_edit_amount = approach(self.last_alpha_edit_amount, new_target, 0.003);
-                        write_strength = max(
-                            write_strength - self.last_alpha_edit_amount,
-                            POST_PROCESS.min_multiply_level
-                        );
-                        final_write_strength = write_strength;
-                    } else if is_dark_mines {
-                        var new_target = undefined;
-                        if ARI.status_effects.effects.get(StatusEffectId.SacredLight) != undefined {
-                            new_target = 0.55;
-                        } else if self.dark_room_target_override != undefined {
-                            new_target = self.dark_room_target_override;
-                        } else {
-                            new_target = lerp(
-                                POST_PROCESS.min_multiply_level,
-                                write_strength,
-                                self.dark_room_light_count / POST_PROCESS.multiply_by_light_count,
-                            );
-                        }
-
-                        self.last_alpha_edit_amount = approach(self.last_alpha_edit_amount, new_target, self.dark_room_transition_speed);
-                        write_strength = max(
-                            write_strength - self.last_alpha_edit_amount,
-                            POST_PROCESS.min_multiply_level
-                        );
-
-                        final_write_strength = 0.09;
-                    } else {
-                        write_strength = POST_PROCESS.min_multiply_level;
-                        final_write_strength = write_strength;
-                    }
-                }
-
-                gpu_set_extra(UberShaderKind.Light);
-                var current_depth = gpu_get_depth();
-
-                var exterior_window = instance_singleton(obj_exterior_window_interior);
-                if exterior_window != undefined {
-                    gpu_set_depth(exterior_window.depth);
-                    gpu_set_stencil_test(cmpfunc_greater, 255);
-                    //
-                    for (var yy = 0; yy < ds_grid_height(exterior_window.windows); yy++) {
-                        for (var xx = 0; xx < ds_grid_width(exterior_window.windows); xx++) {
-                            if exterior_window.windows[# xx, yy] {
-                                draw_sprite_ext(
-                                    spr_pixel,
-                                    0,
-                                    xx * 8,
-                                    yy * 8,
-                                    8,
-                                    8,
-                                    0,
-                                    0,
-                                    0,
-                                );
-                            }
-                        }
-                    }
-                }
-
-                var exterior_non_tiered_lights = [];
-
-                draw_clear_stencil(0);
-                for (var light_level = 0; light_level < 3; light_level++) {
-                    with par_light {
-                        if self.show == false
-                            || self.sprite_index == undefined
-                            || self.sprite_index == undefined
-                        {
-                            continue;
-                        }
-
-                        if self.tiered_light == undefined {
-                            array_push(exterior_non_tiered_lights, self);
-                        } else {
-                            var this_light_level = light_level - real(is_dark_mines && self[$ "secondary"] != undefined);
-                            if this_light_level < 0 {
-                                continue;
-                            }
-                            var light_str = POST_PROCESS.light_strength[3 - light_level];
-                            var write_alpha;
-                            if is_dark_mines {
-                                write_alpha = min(light_str, write_strength);
-                            } else {
-                                write_alpha = light_str * write_strength;
-                            }
-
-                            var write_color = make_color_rgb(
-                                round(255 * POST_PROCESS.multiply_color[0] * write_alpha),
-                                round(255 * POST_PROCESS.multiply_color[1] * write_alpha),
-                                round(255 * POST_PROCESS.multiply_color[2] * write_alpha),
-                            );
-
-                            gpu_set_depth(
-                                self.depth - sprite_get_yoffset(LIGHTS[self.tiered_light][this_light_level]) - (is_dark_mines * 1000)
-                            );
-                            gpu_set_stencil_test(cmpfunc_greater, (4 - light_level) * 50);
-                            draw_sprite_ext(
-                                LIGHTS[self.tiered_light][this_light_level],
-                                self.image_index,
-                                x,
-                                y,
-                                self.image_xscale,
-                                self.image_yscale,
-                                0,
-                                write_color,
-                                write_alpha,
-                            );
-                        }
-                    }
-                }
-
-                gpu_set_stencil_test(cmpfunc_greater, 255);
-                for (var i = 0, c = array_length(exterior_non_tiered_lights); i < c; i++) {
-                    var exterior_light = exterior_non_tiered_lights[i];
-                    gpu_set_depth(exterior_light.depth);
-
-                    draw_sprite_ext(
-                        exterior_light.sprite_index,
-                        exterior_light.image_index,
-                        exterior_light.x,
-                        exterior_light.y,
-                        exterior_light.image_xscale,
-                        exterior_light.image_yscale,
-                        0,
-                        0,
-                        0,
-                    );
-                }
-
-                if exterior_window != undefined {
-                    gpu_set_depth(exterior_window.depth);
-                    //
-                    for (var yy = 0; yy < ds_grid_height(exterior_window.windows); yy++) {
-                        for (var xx = 0; xx < ds_grid_width(exterior_window.windows); xx++) {
-                            if exterior_window.windows[# xx, yy] {
-                                draw_sprite_ext(
-                                    spr_pixel,
-                                    0,
-                                    xx * 8,
-                                    yy * 8,
-                                    8,
-                                    8,
-                                    0,
-                                    0,
-                                    0,
-                                );
-                            }
-                        }
-                    }
-                }
-
-                final_write_strength = max(final_write_strength, write_strength);
-
-                gpu_set_depth(current_depth);
-                gpu_set_stencil_test(cmpfunc_greater, 1);
-                gpu_set_depth_test(cmpfunc_always);
-                draw_sprite_ext(
-                    spr_pixel,
-                    0,
-                    CAMERA.internal_cam_pos.x - CAMERA.x_buffer,
-                    CAMERA.internal_cam_pos.y - CAMERA.y_buffer,
-                    CAMERA.view_width + (CAMERA.x_buffer * 2),
-                    CAMERA.view_height + (CAMERA.y_buffer * 2),
-                    0,
-                    make_color_rgb(
-                        round(255 * POST_PROCESS.multiply_color[0] * final_write_strength),
-                        round(255 * POST_PROCESS.multiply_color[1] * final_write_strength),
-                        round(255 * POST_PROCESS.multiply_color[2] * final_write_strength),
-                    ),
-                    final_write_strength,
-                );
-                gpu_set_srgb_blending(true);
-                gpu_set_blendmode_ext(bm_src_alpha, bm_inv_src_alpha);
-                gpu_disable_stencil();
-                gpu_reset_extra();
-                if DEBUG_TOOLS {
-                    gpu_pop_group();
-                }
+                self.draw_lights();
             }
         },
         room_start: function() {
@@ -655,6 +689,32 @@ var game_obj = object_create(
                 DECOR.setup_room(GRID, false);
             }
 
+            if LOCATIONS[GRID.location_id].wall_shadows != undefined {
+                var shadow_level = instance_create_depth(
+                    0,
+                    0,
+                    room_data_layer_depth(location_id_to_gm_room(GRID.location_id), "Level_0_Walls") - 1,
+                    obj_shadow_level,
+                    {
+                        target_shadow_grid: new ShadowGrid(true),
+                        shadow_maps: undefined,
+                        render_outlines: false,
+                        shadow_area: [
+                            spr_pixel,
+                            0,
+                            0,
+                            0,
+                            room_width(),
+                            LOCATIONS[GRID.location_id].wall_shadows,
+                        ],
+                        wall_shadow: true,
+                    }
+                );
+                if DEBUG_TOOLS {
+                    shadow_level.name = "WallsShadows";
+                }
+            }
+
             if GRID.location_id == LocationId.DeepWoods
                 && requirements_pass(Requirement.ClosedFinalSeal)
             {
@@ -668,8 +728,6 @@ var game_obj = object_create(
 
             if is_dungeon_room(room()) {
                 on_dungeon_enter();
-            } else if DUNGEON_RUNNER != undefined {
-                on_dungeon_exit();
             }
 
             //
@@ -700,7 +758,6 @@ var game_obj = object_create(
             }
             WEATHER.on_room_start();
             npas_room_start();
-            SATURDAY_MARKET.on_room_start();
             ANCHOR.on_room_start();
             pet_on_room_start();
 
@@ -710,6 +767,12 @@ var game_obj = object_create(
             //
             spawn_bugs_on_room_start();
             MIST.on_room_start();
+
+            //
+            //
+            if instance_exists(obj_ari) && !MIST.is_running() {
+                obj_ari.quest_handle_queries();
+            }
 
             if is_home_location(CURRENT_LOCATION_ID) == false {
                 ARI.has_left_house_today = true;

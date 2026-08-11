@@ -56,6 +56,7 @@ function parse_requirements(entry) {
                 var quest = is_struct(this_entry) ? this_entry.quest : this_entry;
                 CONTENT_REGISTRY.validate_quest(quest);
                 return [quest, days_after];
+            case Requirement.CompletedQuestsInCategory: return string_to_quest_category(this_entry);
             case Requirement.QuestIsActive: return CONTENT_REGISTRY.validate_quest(this_entry);
             case Requirement.ReachedSkillLevel: return MAP_SINGLE_FIELD(this_entry, string_to_skill);
             case Requirement.ReachedHeartLevel: return MAP_SINGLE_FIELD(this_entry, string_to_npc_id);
@@ -79,6 +80,9 @@ function parse_requirements(entry) {
             case Requirement.HasItem: return is_struct(this_entry)
                 ? MAP_SINGLE_FIELD(this_entry, string_to_item_id)
                 : [string_to_item_id(this_entry), 1];
+            case Requirement.DefeatedMonster: return is_struct(this_entry)
+                ? MAP_SINGLE_FIELD(this_entry, string_to_monster_category)
+                : [string_to_monster_category(this_entry), 1];
             case Requirement.DonatedItem: return string_to_item_id(this_entry);
             case Requirement.UnlockedAnimal: return string_to_animal_kind(this_entry);
             case Requirement.ReceivedLetter: return CONTENT_REGISTRY.validate_letter(this_entry);
@@ -129,7 +133,7 @@ function parse_requirements(entry) {
             case Requirement.ReachedEnemiesDefeated:
             case Requirement.AcquiredAnimals:
             case Requirement.HasAnimalOfRank:
-            case Requirement.ReachedGiftsGiven:
+            case Requirement.GoodGiftsGiven:
             case Requirement.ReachedEssence:
                 if DEBUG_ASSERTIONS {
                     assert(is_real(this_entry), "Can only use a real for {Requirement}!", requirement);
@@ -138,19 +142,15 @@ function parse_requirements(entry) {
             case Requirement.WorldFactIs: return MAP_SINGLE_FIELD(this_entry, undefined, function(v) {
                 return v == "undefined" ? undefined : v;
             });
-            case Requirement.AlmanacCategoryCompleted:
-                if DEBUG_ASSERTIONS {
-                    assert(is_string(this_entry), "Can only use a string representing a tag for almanac categories")
-                }
-                return this_entry;
             case Requirement.IsDating: return string_to_npc_id(this_entry);
             case Requirement.IsSpouse: return string_to_npc_id(this_entry);
             case Requirement.IsPartner: return string_to_npc_id(this_entry);
             case Requirement.IsBestFriend: return string_to_npc_id(this_entry);
-            case Requirement.FinishedMuseumSetWithin: return string_to_museum_wing(this_entry);
-            case Requirement.CompletedMuseumWings: return string_to_museum_wing(this_entry);
+            case Requirement.CompletedMuseumSetWithin: return string_to_museum_wing(this_entry);
+            case Requirement.CompletedMuseumSet: return [string_to_museum_wing(this_entry.wing), this_entry.set];
             case Requirement.EndOfDayStatus: return string_to_end_of_day_status(this_entry);
             case Requirement.AllNpcGiftsDiscovered: return string_to_npc_id(this_entry);
+            case Requirement.HasChildAtAge: return this_entry;
             case Requirement.Custom: return this_entry;
             default:
                 if DEBUG_ASSERTIONS {
@@ -210,38 +210,34 @@ function create_req_check() {
                 var any = false;
                 for (var i = 0; i < array_length(input); i++) {
                     if requirements_pass(input[i]) {
-                        any = true;
-                        break;
+                        return true;
                     }
                 }
-                return any;
+                return false;
             }
             case Requirement.Invert: return function(input) {
                 return !requirements_pass(input);
             }
-            case Requirement.CompletedMuseumWings: return function(input) {
-                var pass = true;
-                for (var i = 0, ic = array_length(input); i < ic; i++) {
-                    var wing = input[i];
-                    var sets = MUSEUM_DATA.data[wing].sets.keys();
-                    var complete_sets = 0;
-                    for (var j = 0, jc = array_length(sets); j < jc; j++) {
-                        var set = sets[j];
-                        if museum_set_progress(wing, set) == museum_set_size(wing, set) {
-                            complete_sets += 1;
-                        }
-                    }
-                    if complete_sets != array_length(sets) {
-                        pass = false;
-                        break;
-                    }
-                }
-
-                return pass;
-            }
             case Requirement.HasPerk: return function(input) {
                 for (var i = 0; i < array_length(input); i++) {
                     if !ARI.perks[input[i]] {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            case Requirement.HasAtLeastOneTierFivePerkPerCategory: return function(input) {
+                static tier_five_perks_by_category = get_tier_five_perks_by_category();
+                for (var i = 0; i < array_length(tier_five_perks_by_category); i++) {
+                    var perks = tier_five_perks_by_category[i];
+                    var has_any = false;
+                    for (var j = 0; j < array_length(perks); j++) {
+                        if ARI.perks[perks[j]] {
+                            has_any = true;
+                            break;
+                        }
+                    }
+                    if !has_any {
                         return false;
                     }
                 }
@@ -270,6 +266,19 @@ function create_req_check() {
                             return false;
                         }
                     }
+                }
+                return true;
+            }
+            case Requirement.CompletedQuestsInCategory: return function(input) {
+                for (var i = 0; i < array_length(input); i++) {
+                    var this_entry = input[i];
+                    var these_quests = QUESTS_BY_CATEGORY[this_entry];
+                    for (var j = 0, c = array_length(these_quests); j < c; j++) {
+                        if !QUEST_LOG.completed.contains(these_quests[j]) {
+                            return false;
+                        }
+                    }
+
                 }
                 return true;
             }
@@ -350,6 +359,15 @@ function create_req_check() {
                 for (var i = 0; i < array_length(input); i++) {
                     var entry = input[i];
                     if ARI.items_sold[entry[0]] < entry[1] {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            case Requirement.DefeatedMonster: return function(input) {
+                var count = 0;
+                for (var i = 0; i < array_length(input); i++) {
+                    if ARI.monster_kills(input[i][0]) < input[i][1] {
                         return false;
                     }
                 }
@@ -503,11 +521,33 @@ function create_req_check() {
             case Requirement.HasFiance: return function() {
                 return ARI.has_fiance();
             }
+            case Requirement.HasBestFriend: return function() {
+                for (var i = 0; i < NpcId.LEN; i++) {
+                    if NPCS[i].is_best_friend() {
+                        return true;
+                    }
+                }
+                return false;
+            }
+            case Requirement.HasPartner: return function() {
+                for (var i = 0; i < NpcId.LEN; i++) {
+                    if NPCS[i].is_partner() {
+                        return true;
+                    }
+                }
+                return false;
+            }
             case Requirement.ReachedMinesLevel: return function(input) {
                 return MAXIMUM_REACHED_DUNGEON_LEVEL + 1 >= input;
             }
             case Requirement.ReachedRenownLevel: return function(input) {
-                return renown_to_level(ARI.renown) >= input;
+                var renown = ARI.renown;
+                if ARI.end_of_day_status != undefined {
+                    renown += ARI.pending_renown_entries.sum_with(function(e) {
+                        return renown_entry_value(e);
+                    });
+                }
+                return renown_to_level(renown) >= input;
             }
             case Requirement.EarnedGold: return function(input) {
                 return game_stats_get_income_total() >= input;
@@ -540,7 +580,12 @@ function create_req_check() {
                     return matches(v.object_id, ObjectId.SmallBarn, ObjectId.MediumBarn, ObjectId.LargeBarn);
                 });
             }
-            case Requirement.ReachedGiftsGiven: return function(input) {
+            case Requirement.GoodGiftsGiven: return function(input) {
+                for (var i = 0; i < NpcId.LEN; i++) {
+                    if array_has(NPC_PROTOTYPES[i].tags, "townsfolk") {
+                        T2R.write(format("gave_{NpcId}_good_birthday_gift", i), true);
+                    }
+                }
                 return array_length(GAME_STATS.gifts_given) >= input;
             }
             case Requirement.ReachedItemsCooked: return function(input) {
@@ -564,7 +609,7 @@ function create_req_check() {
             case Requirement.ReachedEnemiesDefeated: return function(input) {
                 return GAME_STATS.enemies_killed >= input;
             }
-            case Requirement.FinishedMuseumSetWithin: return function(input) {
+            case Requirement.CompletedMuseumSetWithin: return function(input) {
                 for (var i = 0; i < array_length(input); i++) {
                     var wing = input[i];
                     var sets = MUSEUM_DATA.data[wing].sets.keys();
@@ -581,24 +626,34 @@ function create_req_check() {
                 }
                 return true;
             }
+            case Requirement.CompletedMuseumSet: return function(input) {
+                for (var i = 0; i < array_length(input); i++) {
+                    var wing = input[i][0];
+                    if museum_set_progress(wing, input[i][1]) != museum_set_size(wing, input[i][1]) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            case Requirement.CompletedMuseum: return function(input) {
+                for (var i = 0; i < ItemId.LEN; i++) {
+                    if MUSEUM_DATA.museum_items[i] && !MUSEUM_PROGRESS[i] {
+                        return false;
+                    }
+                }
+                return true;
+            }
             case Requirement.BabyIsDue: return function() {
                 return ARI.pending_child != undefined && ARI.pending_child.due_date <= CALENDAR.time;
+            }
+            case Requirement.HasChild: return function() {
+                return !array_is_empty(ARI.children);
             }
             case Requirement.ReachedEssence: return function(input) {
                 return GAME_STATS.gross_essence >= input;
             }
-            case Requirement.AlmanacCategoryCompleted: return function(arr) {
-                for (var i = 0, ic = array_length(arr); i < ic; i++) {
-                    for (var j = 0; j < ItemId.LEN; j++) {
-                        if ITEM_PROTOTYPES[j].tags.contains(arr[i]) == false {
-                            continue;
-                        }
-                        if ARI.items_acquired[j] == false {
-                            return false;
-                        }
-                    }
-                }
-                return true;
+            case Requirement.CompletedAlmanac: return function(arr) {
+                return ARI.almanac_items_remaining.is_empty();
             }
             case Requirement.AllNpcGiftsDiscovered: return function(npc_ids) {
                 for (var i = 0, ic = array_length(npc_ids); i < ic; i++) {
@@ -615,6 +670,14 @@ function create_req_check() {
                     }
                 }
                 return true;
+            }
+            case Requirement.HasChildAtAge: return function(age) {
+                for (var i = 0; i < array_length(ARI.children); i++) {
+                    if CALENDAR.year() - get_years(ARI.children[i].birthday) >= 1 {
+                        return true;
+                    }
+                }
+                return false;
             }
             case Requirement.Custom: return function() {
                 assert_eq(input, undefined, "Custom requirements must be manually handled!");
@@ -643,7 +706,7 @@ function requirements_pass(req) {
         return REQ_CHECK[req]();
     }
 
-    for (var i = 0; i < array_length(req); i++) {
+    for (var i = 0; i < Requirement.LEN; i++) {
         var input = req[i];
         if input == undefined || (requirement_field_is_array(i) && array_is_empty(input)) {
             continue;
@@ -675,7 +738,7 @@ function requirement_field_is_array(requirement) {
         case Requirement.Invert:
         case Requirement.HasHomeUpgrade:
         case Requirement.HasUpperFloor:
-        case Requirement.ReachedGiftsGiven:
+        case Requirement.GoodGiftsGiven:
         case Requirement.ReachedItemsCooked:
         case Requirement.ReachedItemsSmithed:
         case Requirement.ReachedBugsCaught:
@@ -688,6 +751,8 @@ function requirement_field_is_array(requirement) {
         case Requirement.AcquiredAnimals:
         case Requirement.ReachedItemsWoodcrafted:
         case Requirement.ReachedEssence:
+        case Requirement.BabyIsDue:
+        case Requirement.HasChild:
             return false;
         default: return true;
     }
@@ -715,4 +780,34 @@ function parse_requirement_date(input) {
         year: year,
         exact: input[$ "exact"] ?? false,
     };
+}
+
+function requirements_used_within(entry, collection) {
+    collection ??= [];
+
+    for (var i = 0; i < Requirement.LEN; i++) {
+        var this = entry[i];
+        if this == undefined || (requirement_field_is_array(i) && array_is_empty(this)) {
+            continue;
+        }
+
+        if requirement_is_alias(i) {
+            requirements_used_within(REQUIREMENT_ALIASES[i], collection);
+            continue;
+        } else if i == Requirement.Or {
+            for (var j = 0; j < array_length(this); j++) {
+                requirements_used_within(this[j], collection);
+            }
+            continue;
+        } else if i == Requirement.Invert {
+            requirements_used_within(this, collection);
+            continue;
+        }
+
+        if !array_has(collection, i) {
+            array_push(collection, i);
+        }
+    }
+
+    return collection;
 }

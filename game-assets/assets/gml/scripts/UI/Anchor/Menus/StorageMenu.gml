@@ -144,14 +144,13 @@ function StorageMenu() : AnchorMenu(Menu.Storage) constructor {
         for (var i = 0; i < self.listings.count(); i++) {
             var max_width = self.listing_plate.get_width() - TEXT_PADDING;
             var listing = self.listings.get(i);
-            var label = listing_label(listing);
-            var root_height = ANCHOR.text_height(label, max_width) + 8;
             var root = ANCHOR.positional(header)
                 .set_align(Align.LeftIn, Align.BottomOut)
-                .set_size(self.listing_plate.get_width() - 4, root_height)
+                .set_width(self.listing_plate.get_width() - 4)
                 .set_xy(2, yy)
 
-            render_quest_requirement(listing, root, max_width);
+            var root_height = render_quest_requirement(listing, root, max_width).name.measure().y + 8;
+            root.set_height(root_height);
 
             yy += root_height;
         }
@@ -482,8 +481,8 @@ function StorageBanner(inventory, menu, hand, pilot, pair, node) constructor {
                                 : self.pair.item_id_quantity(slot.item.item_id) != 0;
                             if check {
                                 var count = min(slot.count, self.pair.room_for_item(slot.item));
-                                self.pair.add(slot.item, count);
-                                slot.remove(count);
+                                var not_added = self.pair.add(slot.item, count);
+                                slot.remove(count - not_added);
                             }
                         }
                     }
@@ -656,7 +655,7 @@ function StorageBanner(inventory, menu, hand, pilot, pair, node) constructor {
                             .set_x(-3)
 
                         ANCHOR.sprite(glyph)
-                            .set_sprite(spr_ui_generic_keyboard_keys)
+                            .set_sprite(big_keyboard_keys_sprite())
                             .set_index(array_index(KEYBOARD_INPUTS, vk_shift) + 1)
                             .set_align(Align.LeftOut, Align.Middle)
                             .set_x(-13)
@@ -688,7 +687,7 @@ function StorageBanner(inventory, menu, hand, pilot, pair, node) constructor {
                             .set_x(-3)
 
                         ANCHOR.sprite(glyph)
-                            .set_sprite(spr_ui_generic_keyboard_keys)
+                            .set_sprite(big_keyboard_keys_sprite())
                             .set_index(array_index(KEYBOARD_INPUTS, vk_shift) + 1)
                             .set_align(Align.LeftOut, Align.Middle)
                             .set_x(-13)
@@ -771,8 +770,7 @@ function StorageBanner(inventory, menu, hand, pilot, pair, node) constructor {
                                 .set_x(-3)
 
                             ANCHOR.sprite(glyph)
-                                .set_sprite(spr_ui_generic_keyboard_keys)
-                                .set_sprite(spr_ui_generic_keyboard_keys)
+                                .set_sprite(big_keyboard_keys_sprite())
                                 .set_align(Align.LeftOut, Align.Middle)
                                 .set_index(array_index(KEYBOARD_INPUTS, vk_control) + 1)
                                 .set_x(-13)

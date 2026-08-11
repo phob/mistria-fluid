@@ -149,7 +149,7 @@ object_create(
                 );
                 self.light.light_insert = self;
 
-                if CLOCK.time >= LIGHT_TURN_ON_TIME || WEATHER.is_inclement() {
+                if CLOCK.time >= LIGHT_TURN_ON_TIME || WEATHER.is_inclement() || MIST.blackboard.get("force_lights_on") == true {
                     self.light.time_offset = 0;
                     self.light.turn_on();
                 }

@@ -61,6 +61,8 @@ function Stable(building) constructor {
                 instance_destroy(animal.instance);
             }
         }
+
+        refresh_achievements([Requirement.HasAnimalOfRank, Requirement.HasAnyAnimal]);
     }
 
     //
@@ -327,6 +329,13 @@ function Stable(building) constructor {
                 GAME_STATS.perks[$ perk_to_string(Perk.CloseBond)] += 1;
             }
 
+            perk_bonus = ARI.perk_value(Perk.CloseBondTwo);
+
+            if is_happy && perk_bonus != 0 {
+                animal.add_heart_points(perk_bonus);
+                GAME_STATS.perks[$ perk_to_string(Perk.CloseBondTwo)] += 1;
+            }
+
             if !animal.is_baby() && is_happy {
                 //
                 animal.production_days += 1;
@@ -410,6 +419,14 @@ function Stable(building) constructor {
                         production.golden_product,
                         golden_bonus + golden_bonus_two + golden_bonus_three,
                     );
+
+                    if animal.prototype.breeding.uses_egg
+                        && golden_products.is_empty() == false
+                        && chance_percent(ARI.perk_value(Perk.Eggstra))
+                    {
+                        normal_products.push(new LiveItem(production.normal_product));
+                        GAME_STATS.perks[$ perk_to_string(Perk.Eggstra)] += 1;
+                    }
 
                     //
                     var pos = trellis_point(self.building.prototype.stall_points.get(i));

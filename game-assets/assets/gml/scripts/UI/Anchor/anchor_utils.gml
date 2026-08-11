@@ -7,7 +7,7 @@
 
 #macro COMMON_LUT spr_ui_generic_font_lut
 
-#macro COMMON_BUTTON_HEIGHT 16
+#macro COMMON_BUTTON_HEIGHT local_get_info(LocalInfoRequest.CommonButtonHeight)
 
 #macro ACTIVE_ROOM_TITLE global.__active_room_title
 ACTIVE_ROOM_TITLE = undefined;
@@ -226,8 +226,7 @@ function process_node_position(node, parent) {
                 round(
                     x_value
                     + parent.cache_x
-                    + round(parent.width / 2)
-                    - round(node.width / 2)
+                    + floor(((parent.width - node.width) / 2) + 0.5)
                 );
             break;
         case Align.RightIn:
@@ -270,8 +269,7 @@ function process_node_position(node, parent) {
                 round(
                     y_value
                     + parent.cache_y
-                    + round(parent.height / 2)
-                    - round(node.height / 2)
+                    + floor(((parent.height - node.height) / 2) + 0.5)
                 );
             break;
         case Align.BottomIn:
@@ -478,7 +476,12 @@ function create_options_popup(title_key, list, formatter, setter, pilot, columns
         return max(a, width);
     }, [formatter])
 
-    var button_size = Vec2(button_width, COMMON_BUTTON_HEIGHT);
+    var button_height = list.fold(COMMON_BUTTON_HEIGHT, function(a, b, formatter, wrap_width) {
+        var height = ANCHOR.text_height(formatter(b), wrap_width) + 6;
+        return max(a, height);
+    }, [formatter, button_width - 6]);
+
+    var button_size = Vec2(button_width, button_height);
     var padding_from_buttons = Vec2(padding * (columns - 1), padding * (rows - 1));
     var popup_size = Vec2(
         (button_size.x * columns) + padding_from_buttons.x + (padding * 2),
@@ -665,6 +668,10 @@ function TimeWidget(parent, xx, yy, horz_align, vert_align, forced_time) constru
         var hour = get_hours(time);
         var minutes = SHOW_MINUTES_ON_UI ? get_minutes(time) : (get_minutes(time) div 10) * 10;
 
+        var am_pm_sprite = local_language() == "zh-Hans"
+            ? spr_ui_hud_font_daytime_amppm_cn
+            : spr_ui_hud_font_daytime_amppm;
+
         self.time_text_minutes.set_index(minutes);
         var xmod = 0;
         if !SETTINGS.get("twenty_four_hour_clock") {
@@ -685,7 +692,7 @@ function TimeWidget(parent, xx, yy, horz_align, vert_align, forced_time) constru
             } else {
                 self.time_am_pm.set_index(0);
             }
-            self.time_am_pm.set_sprite(spr_ui_hud_font_daytime_amppm);
+            self.time_am_pm.set_sprite(am_pm_sprite);
         } else {
             xmod = 11;
             self.time_am_pm.set_sprite(spr_nothing);
@@ -713,14 +720,22 @@ function TimeWidget(parent, xx, yy, horz_align, vert_align, forced_time) constru
             //
     }
 
+    var modifier = 0;
+    var am_pm_sprite = spr_ui_hud_font_daytime_amppm;
+    if local_language() == "zh-Hans" {
+        modifier = -3;
+        am_pm_sprite = spr_ui_hud_font_daytime_amppm_cn;
+    }
+
     self.time_root = ANCHOR.positional(parent)
-        .set_xy(xx, yy)
-        .set_size(sprite_get_width(spr_ui_hud_font_daytime_amppm), sprite_get_height(spr_ui_hud_font_daytime_amppm))
+        .set_xy(xx + modifier, yy)
+        .set_size(sprite_get_width(am_pm_sprite), sprite_get_height(am_pm_sprite))
         .set_align(horz_align, vert_align)
         .board_set("base_x", xx)
 
     self.time_am_pm = ANCHOR.sprite(self.time_root)
-        .set_sprite(spr_ui_hud_font_daytime_amppm)
+        .set_sprite(am_pm_sprite)
+        .set_y(1)
 
     self.time_text_minutes = ANCHOR.sprite(self.time_root)
         .set_xy(-22, 0)
@@ -778,8 +793,6 @@ function text_input_popup_configuration(popup, starting_text, max_width, callbac
     var character_limit = local_get_info(LocalInfoRequest.TextInputCharacterLimit);
     if character_limit != undefined {
         popup.name_input.set_max_characters(character_limit);
-    } else {
-        popup.name_input.set_max_width(max_width);
     }
 
     if steam_on_deck() || (steam_in_big_picture_mode() && ON_GAMEPAD) {
@@ -815,11 +828,11 @@ function text_input_popup_configuration(popup, starting_text, max_width, callbac
     return popup.spawn();
 }
 
-function elide_text(text, max_width, max_lines, include_ellipses=true, font) {
+function elide_text(text, max_width, max_lines, include_ellipses=true, font, force=false) {
     font = font == undefined ? ANCHOR.get_text_font() : font;
 
     //
-    var with_newlines = ANCHOR.reflow(text, max_width, font);
+    var with_newlines = ANCHOR.reflow(text, max_width, font, force);
 
     //
     var lines = string_split(with_newlines, "\n");
@@ -1010,16 +1023,25 @@ function JournalFields(parent, pilot) constructor {
 //
 function await_popup(func, args, chain) {
     if chain == undefined {
-        chain = new_chain();
+        ANCHOR.popup_awaiters.push({ func: func, args: args });
+        return;
     }
+
+    var awaiter = { fired: false, func: func, args: args };
+
     chain
-        .append(LinkId.Await, function() {
-            return !ANCHOR.open_menus.any(function(e) {
-                var valid_to_check = e.type == Menu.Popup && e.spawned && e[$ "is_tooltip"] != true;
-                return valid_to_check && !e.free_requested;
-            })
-        })
-        .append(LinkId.Function, func, args)
+        .append(LinkId.Function, function(awaiter) {
+            ANCHOR.popup_awaiters.push({
+                func: function(awaiter) {
+                    awaiter.fired = true;
+                    function_execute_alt(awaiter.func, awaiter.args);
+                },
+                args: [awaiter],
+            });
+        }, [awaiter])
+        .append(LinkId.Await, function(awaiter) {
+            return awaiter.fired;
+        }, [awaiter])
 }
 
 function Carousel() constructor {
@@ -1229,7 +1251,7 @@ function calendar_widget(parent) {
         .set_align(Align.RightIn, Align.TopIn)
 
     calendar.update = method(calendar, function() {
-        self.set_sprite(string_to_asset(format("spr_ui_hud_calendar_baked_text_english_{Season}", CALENDAR.season())));
+        self.set_sprite(string_to_asset(format("spr_ui_hud_calendar_baked_text_{}_{Season}", asset_local_insert(), CALENDAR.season())));
         self.set_index(CALENDAR.day())
     });
 
@@ -1363,7 +1385,7 @@ function ProgressBar(parent, widget) constructor {
                                     self.widget.level.set_alpha(a);
                                 })
                                 .append(LinkId.Function, function(order) {
-                                    self.widget.level.set_text(format("LVL {}", order.level + 1));
+                                    self.widget.level.set_text(format("{Local} {}", "misc_local/renown_lvl_insert_caps", order.level + 1));
                                 }, [order])
                                 .append(LinkId.Ease, new Ease(EaseId.QuartOut, 0, 1, 15), function(_, a) {
                                     self.widget.level.set_alpha(a);
@@ -1445,6 +1467,7 @@ function ProgressBar(parent, widget) constructor {
                                         ANCHOR.free_node(effect);
                                         self.widget.star.set_sprite(rank.sprite);
                                         self.widget.text.set_text(format("{Local}: {Local}", "misc_local/town_rank", rank.name));
+                                        self.widget.backplate.set_width(max(self.widget.text.get_width() + 26, 130));
 
                                         var poof = ANCHOR.sprite(self.widget.star)
                                             .set_sprite(spr_ui_renown_level_up_star_fx_poof)
@@ -1466,18 +1489,25 @@ function ProgressBar(parent, widget) constructor {
 
                 self.chain
                     .append(LinkId.Function, function(order) {
+                        if order.is_rank_up && !MIST.is_running() {
+                            refresh_achievements([Requirement.ReachedRenownLevel]);
+                        }
                         self.level_up_callback(order);
                     }, [order])
                     .append(LinkId.Await, function() {
                         return self.level_up_continue_check();
-                    })
-                    .append(LinkId.Ease, new Ease(EaseId.QuartOut, 1, 0, 30), function(_, a) {
-                        self.flash.set_alpha(a);
-                        self.reward_icon.set_alpha(a);
-                    })
-                    .append(LinkId.Function, function() {
-                        self.flash.disable();
-                    })
+                    });
+
+                if order.level + 1 < order.max_level {
+                    self.chain
+                        .append(LinkId.Ease, new Ease(EaseId.QuartOut, 1, 0, 30), function(_, a) {
+                            self.flash.set_alpha(a);
+                            self.reward_icon.set_alpha(a);
+                        })
+                        .append(LinkId.Function, function() {
+                            self.flash.disable();
+                        })
+                }
             } else {
                 self.chain.append(LinkId.Timer, 60);
             }
@@ -1691,7 +1721,6 @@ function MultipleChoicePopup(title, icon) constructor {
         var button = self.popup.create_button(label, callback, args, undefined, undefined, false)
             .set_align(Align.Center, Align.TopIn)
             .set_y(self.y)
-            .set_height(18)
             .set_width(97)
             .remove_glyph()
             .set_tap_callback(function(callback, args) {
@@ -1799,26 +1828,40 @@ function stop_room_title() {
     }
 }
 
-function render_animal_in_ui(animal, parent, dir=Cardinal.East) {
-    var sprites = animal.sprites_for_animation("idle", dir);
+function render_animal_in_ui(animal, parent, dir=Cardinal.East, override_animation) {
+    var sprites = animal.sprites_for_animation(override_animation ?? "idle", dir);
 
-    var centered = centered_position_from_bbox(sprites.base_sprite, parent.get_size());
+    //
+    if animation_to_shape(sprites.base_sprite) == undefined {
+        warn("Missing a shape for '{gm_sprite}'!", sprites.base_sprite);
+        var centered = Vec2Zero();
+    } else {
+        var centered = centered_position_from_bbox(
+            sprites.base_sprite,
+            parent.get_size(),
+        );
+    }
 
     var animal_base = ANCHOR.sprite(parent)
         .set_sprite(sprites.base_sprite)
         .set_xy(centered);
 
-    var cosmetic_base = ANCHOR.sprite(animal_base)
-        .set_sprite(sprites.base_cosmetic ?? spr_nothing)
-        .set_align(Align.Center, Align.Middle)
+    static MAKE_LAYER = function(base, sprite, z) {
+        sprite ??= spr_nothing;
+        var base_sprite = base.get_sprite();
 
-    var animal_top = ANCHOR.sprite(cosmetic_base)
-        .set_align(Align.Center, Align.Middle)
-        .set_sprite(sprites.top_sprite ?? spr_nothing)
+        return ANCHOR.sprite(base, z)
+            .set_sprite(sprite)
+            .set_xy(
+                sprite_get_xoffset(base_sprite) - sprite_get_xoffset(sprite),
+                sprite_get_yoffset(base_sprite) - sprite_get_yoffset(sprite),
+            );
+    };
 
-    var cosmetic_top = ANCHOR.sprite(animal_top)
-        .set_sprite(sprites.top_cosmetic ?? spr_nothing)
-        .set_align(Align.Center, Align.Middle)
+
+    var cosmetic_base = MAKE_LAYER(animal_base, sprites.base_cosmetic, animal_base.z - 1);
+    var animal_top = MAKE_LAYER(animal_base, sprites.top_sprite, animal_base.z - 2);
+    var cosmetic_top = MAKE_LAYER(animal_base, sprites.top_cosmetic, animal_base.z - 3);
 
     if sprites.lut != undefined {
         animal_base.set_lut(sprites.lut, sprites.lut_index);
@@ -1839,7 +1882,7 @@ function scroller_none_option(scroller, height) {
         .listen_for_hovers()
     ANCHOR.text(element)
         .set_align(Align.Center, Align.Middle)
-        .set_key("misc_local/none")
+        .set_key("misc_local/none_alt")
         .set_lut(COMMON_LUT)
         .set_alpha(UI_FADE_ALPHA)
 
@@ -1870,8 +1913,8 @@ function render_skill_level(parent, skill, auto_update=true) {
     root.icon = icon;
     root.cached_xp = ARI.skill_xp[skill];
 
-    root.update_level = method(root, function() {
-        var level = ARI.level(self.skill);
+    root.update_level = method(root, function(override) {
+        var level = override ?? ARI.level(self.skill);
         self.lvl.set_text(level);
         self.lvl.set_x(level >= 10 ? 2 : 4);
         self.icon.set_sprite(string_to_asset(fiddle_get(format("skills/{Skill}/sprite", self.skill))));
@@ -1880,7 +1923,7 @@ function render_skill_level(parent, skill, auto_update=true) {
 
     root.lvl
         .set_align(Align.RightOut, Align.Middle)
-        .set_xy(2, 1)
+        .set_x(2)
         .set_sprite_font("player_level")
         .set_lut(COMMON_LUT, CommonLutIndex.Green);
 
@@ -1913,7 +1956,7 @@ function spawn_tutorial(tutorial) {
 
     popup.add_title(data.title);
 
-    popup.backplate.set_size(211, 213);
+    popup.backplate.set_size(211, 218);
 
     popup.header
         .set_xy(0, 0)
@@ -2096,23 +2139,31 @@ function gift_preferences_ui(parent) {
     return nodes;
 }
 
-function npc_polaroid_ui(parent) {
+function npc_polaroid_ui(parent, small=false) {
+    var bkg = small
+        ? spr_ui_journal_relationship_photo_bg_smaller
+        : spr_ui_journal_relationship_photo_bg;
     var background = ANCHOR.sprite(parent)
-        .set_sprite(spr_ui_journal_relationship_photo_bg)
+        .set_sprite(bkg)
         .set_xy(12, 18);
-
-    var w = sprite_get_width(spr_ui_journal_relationship_photo_bg);
-    var h = sprite_get_height(spr_ui_journal_relationship_photo_bg);
+    var w = sprite_get_width(bkg);
+    var h = sprite_get_height(bkg);
     var canvas = ANCHOR.canvas(background)
         .set_size(w, h)
         .set_render_partial(0, 0, w, h)
 
-    var portrait = ANCHOR.sprite(canvas)
+    var portrait = ANCHOR.sprite(canvas);
+
+    if small {
+        portrait.set_x(-2);
+    }
 
     var frame = ANCHOR.sprite(background)
-        .set_sprite(spr_ui_journal_relationship_photo_frame)
+        .set_sprite(small
+            ? spr_ui_journal_relationship_photo_frame_smaller
+            : spr_ui_journal_relationship_photo_frame
+        )
         .set_align(Align.Center, Align.Middle)
-        .set_xy(1, 1)
 
     var nodes = {
         background,
@@ -2136,6 +2187,11 @@ function npc_polaroid_ui(parent) {
     return nodes;
 }
 
+function create_quest_popup(quest) {
+    var raw = format("{Local}:\n{Local}", "misc_local/quest_started", QUESTS.get(quest).name);
+    create_notification(ANCHOR.wrap_for_local(raw));
+}
+
 function portrait_effect_ui(parent) {
     var portrait_effect = ANCHOR.sprite(parent)
         .set_align(Align.Center, Align.Middle)
@@ -2150,7 +2206,8 @@ function portrait_effect_ui(parent) {
 
     portrait_effect.play_once = false;
 
-    portrait_effect.set = method(portrait_effect, function(speaker_prototype, effect_name="none") {
+    portrait_effect.set = method(portrait_effect, function(speaker_prototype, effect_name) {
+        effect_name = effect_name == undefined ? "none" : effect_name;
         var entry = fiddle_get(format("ui/dialogue_effects/{}", effect_name));
         if entry[$ "sprite"] != undefined {
             self.enable();
@@ -2258,6 +2315,169 @@ function animal_selection_ui(size, element_height) {
         entries,
     };
 }
+
+function song_selection_ui(callback) {
+    var popup = popup_creator("misc_local/select_a_song");
+    popup.backplate.set_size(300, 220);
+
+    var scroller = create_scroller(
+        popup.backplate,
+        Vec2(10, 36),
+        Vec2(popup.backplate.get_width() - 30, 170),
+    );
+    scroller.outline.enable();
+    var pilot = popup.new_pilot();
+    scroller.subscribe_to_pilot(pilot);
+    pilot.allow_vertical_wrapping();
+    var elements = List();
+
+    var keys = ListFromArray(struct_get_names(SONGS));
+    keys.sort_with(function(e1, e2) {
+        var e1_unlocked = array_has(ARI.song_unlocks, e1);
+        var e2_unlocked = array_has(ARI.song_unlocks, e2);
+        if e1_unlocked && e2_unlocked {
+            var e1_name = local_get(SONGS[e1].name);
+            var e2_name = local_get(SONGS[e2].name);
+            return string_alphanumeric_comparison(e1_name, e2_name);
+        } else if e1_unlocked {
+            return -1;
+        } else {
+            return 1;
+        }
+    });
+    keys.insert(undefined, 0);
+    for (var i = 0; i < keys.count(); i++) {
+        var key = keys.get(i);
+        var unlocked = key == undefined ? true : array_has(ARI.song_unlocks, key);
+        var element = scroller.new_element(26)
+            .add_to_pilot(pilot, true)
+            .set_soft_locked(!unlocked)
+            .set_selected_getter(function(key) {
+                return ARI.song_overrides[CURRENT_LOCATION_ID] == key;
+            }, [key])
+            .set_tap_callback(function(popup, song, callback) {
+                popup.close();
+                callback(song);
+            }, [popup, key, callback])
+        var icon = ANCHOR.sprite(element)
+            .set_sprite(key == undefined ? spr_ui_generic_icon_select_none_odd : SONGS[key].icon)
+            .set_align(Align.LeftIn, Align.Middle)
+            .set_color(unlocked ? c_white : MUSEUM_LOCKED_OVERLAY)
+            .set_x(3)
+        ANCHOR.text(icon)
+            .set_key(unlocked
+                ? (key == undefined ? "misc_local/none" : SONGS[key].name)
+                : ANCHOR.wrap_for_local("???")
+            )
+            .set_lut(COMMON_LUT)
+            .set_align(Align.RightOut, Align.Middle)
+            .set_x(2)
+
+        elements.push(element);
+    }
+
+    popup.spawn();
+
+    ANCHOR.set_active_pilot(pilot);
+
+    return popup;
+}
+
+function bell_sound_selection_ui(callback) {
+    var popup = popup_creator("misc_local/select_bell_sound");
+    popup.canvas.set_layer_recursive(AnchorLayer.Standard);
+    popup.background_layer = AnchorLayer.Standard;
+    popup.background_z = popup.canvas.get_z() + 1;
+    popup.active_sound = undefined;
+    popup.backplate.set_size(240, 220);
+
+    var scroller = create_scroller(
+        popup.backplate,
+        Vec2(10, 36),
+        Vec2(popup.backplate.get_width() - 30, 170),
+    );
+    scroller.outline.enable();
+    var pilot = popup.new_pilot();
+    scroller.subscribe_to_pilot(pilot);
+    pilot.allow_vertical_wrapping();
+    var elements = List();
+
+    var keys = ListFromArray(struct_get_names(BELL_SOUNDS));
+    keys.sort_with(function(e1, e2) {
+        if e1 == "default" {
+            return -1;
+        } else if e1 == "default" {
+            return 1;
+        } else {
+            return string_alphanumeric_comparison(BELL_SOUNDS[e1].name, BELL_SOUNDS[e2].name);
+        }
+    });
+    for (var i = 0; i < keys.count(); i++) {
+        var key = keys.get(i);
+        var element = scroller.new_element(26)
+            .add_to_pilot(pilot, true)
+            .set_selected_getter(function(key) {
+                return ARI.bell_sound == key;
+            }, [key])
+            .set_tap_callback(function(popup, key, callback) {
+
+                var confirm = popup_creator(
+                    "misc_local/confirm_bell_sound",
+                    ANCHOR.wrap_for_local(format(
+                        local_get("misc_local/confirm_bell_sound_description"),
+                        local_get(BELL_SOUNDS[key].name),
+                    )),
+                );
+                var close = confirm.create_button("misc_local/close");
+                var conf_button = confirm.create_button("misc_local/confirm", function(key, callback, popup) {
+                    callback(key);
+                }, [key, callback, popup]);
+                var preview = confirm.create_button(
+                    "misc_local/preview",
+                    function(key, popup) {
+                        if popup.active_sound != undefined {
+                            TANGO.force_stop(popup.active_sound);
+                        }
+                        popup.active_sound = TANGO.play(BELL_SOUNDS[key].sound + "2D")
+                    },
+                    [key, popup],
+                    undefined,
+                    undefined,
+                    false,
+                    false,
+                );
+                confirm.backplate.add_height(20);
+                confirm.body.add_y(-10);
+                preview.add_y(-23);
+
+                //
+                confirm.pilot.reset();
+                preview.add_to_pilot(confirm.pilot, true);
+                close.add_to_pilot(confirm.pilot);
+                conf_button.add_to_pilot(confirm.pilot);
+                confirm.pilot.force_select(close);
+                confirm.spawn();
+            }, [popup, key, callback])
+        var icon = ANCHOR.sprite(element)
+            .set_sprite(BELL_SOUNDS[key].icon)
+            .set_align(Align.LeftIn, Align.Middle)
+            .set_x(3)
+        ANCHOR.text(icon)
+            .set_key(BELL_SOUNDS[key].name)
+            .set_lut(COMMON_LUT)
+            .set_align(Align.RightOut, Align.Middle)
+            .set_x(2)
+
+        elements.push(element);
+    }
+
+    popup.spawn();
+
+    ANCHOR.set_active_pilot(pilot);
+
+    return popup;
+}
+
 
 #macro BUTTON_SPRITE_CACHE global.__button_sprite_cache
 BUTTON_SPRITE_CACHE = Map();
@@ -2402,4 +2622,31 @@ function create_naming_popup(animal_to_render) {
         .set_key_sprite_target(popup.random_button)
 
     return popup;
+}
+
+function asset_local_insert() {
+    var insert = local_language();
+    insert = string_replace(insert, "-", "_");
+    insert = string_lower(insert);
+    return insert;
+}
+
+function render_kitchen_tier(parent, tier) {
+    var root = ANCHOR.positional(parent);
+
+    root.icon = ANCHOR.sprite(root)
+        .set_sprite(string_to_asset(format("spr_ui_tooltip_icon_kitchen_level_{}", asset_local_insert())))
+        .set_align(Align.LeftIn, Align.Middle)
+
+    root.text = ANCHOR.text(root)
+        .set_x(1)
+        .set_align(Align.RightIn, Align.Middle)
+        .set_sprite_font("player_level")
+        .set_lut(COMMON_LUT, CommonLutIndex.Green)
+        .set_text(string(tier))
+
+    root.set_width_for_nodes([root.icon, root.text]);
+    root.set_height(root.icon.get_height());
+
+    return root;
 }

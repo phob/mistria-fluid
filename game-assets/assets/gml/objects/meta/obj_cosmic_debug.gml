@@ -100,15 +100,13 @@ var cosmic_debug_obj = object_create(
             }
         },
         draw: function() {
-            shader_reset_to_default();
-
+            gpu_reset_extra();
             if draw_interact_boxes {
                 var npc_nudge_amt = fiddle_get("interaction/npcs/nudge_distance");
 
-                /*
                 for (var i = 0; i < INTERACTABLES.count(); i++) {
                     var interactable = INTERACTABLES.get(i);
-                    if interactable == undefined {
+                    if interactable == undefined || instance_exists(interactable) == false {
                         continue;
                     }
 
@@ -138,7 +136,7 @@ var cosmic_debug_obj = object_create(
                                             break;
                                     }
                                 }
-                                //
+                                draw_circle(xx - self.circle_size, yy - self.circle_size, xx + self.circle_size, yy + self.circle_size, c, 0.5, false);
                                 break;
                             case InteractableMode.Bbox:
                                 if self.override_mask != undefined {
@@ -169,7 +167,6 @@ var cosmic_debug_obj = object_create(
                         }
                     }
                 }
-                */
 
                 var ari_x = obj_ari.x;
                 var ari_y = obj_ari.y;
@@ -192,22 +189,16 @@ var cosmic_debug_obj = object_create(
                     default: impossible("unexpected cardinal {}", obj_ari.cardinal);
                 }
 
-                /*
-                var c = c_gray;
                 draw_rectangle_color(
                     ari_x - f.max_radius,
                     ari_y - f.max_radius,
                     ari_x + f.max_radius,
                     ari_y + f.max_radius,
-                    c,
+                    c_white,
                     0.2
                 );
-                */
 
-                var c = c_yellow;
-                //
-
-                //
+                draw_circle(ari_x - f.max_radius, ari_y - f.max_radius, ari_x + f.max_radius, ari_y + f.max_radius, c_yellow, 0.5);
 
                 with par_interactable {
                     var c;
@@ -269,22 +260,7 @@ var cosmic_debug_obj = object_create(
                     }
                 }
 
-                var c = c_yellow;
-                //
-
-                /*
-                var c = c_gray;
-                draw_rectangle_color(
-                    ari_x - f.max_radius,
-                    ari_y - f.max_radius,
-                    ari_x + f.max_radius,
-                    ari_y + f.max_radius,
-                    c,
-                    1.0
-                );
-
-                draw_circle_color(ari_x, ari_y, 1, c_white, c_white, false);
-                */
+                draw_circle(ari_x - f.max_radius, ari_y - f.max_radius, ari_x + f.max_radius, ari_y + f.max_radius, c_yellow, 0.5, true);
             }
 
             if draw_transparency_detectors {
@@ -972,8 +948,6 @@ var cosmic_debug_obj = object_create(
                 var _up;
                 var _down;
 
-                draw_set_alpha(0.5);
-
                 with obj_damage_tarball {
                     //
                     switch self.collision_mode {
@@ -1000,17 +974,15 @@ var cosmic_debug_obj = object_create(
                     }
 
                     if self.collision_mode == TarballCollision.Circle {
-                        draw_ellipse_color(_left, _up, _right, _down, c_fuchsia, c_fuchsia, false);
+                        //
                     } else {
-                        draw_rectangle_color(_left, _up, _right, _down, c_fuchsia, c_fuchsia, c_fuchsia, c_fuchsia, false);
+                        other.draw_rectangle_color(_left, _up, _right, _down, c_fuchsia, 0.5);
                     }
 
                     if self.in_air {
                         draw_sprite(spr_combat_in_air, 0, x, y);
                     }
                 }
-
-                draw_set_alpha(1.0);
             }
 
             if hurtbox {
@@ -1149,14 +1121,26 @@ var cosmic_debug_obj = object_create(
                 crash(trigger_crash);
             }
 
-            shader_reset_to_default();
+            gpu_reset_extra();
 
             if show_activity_positions {
                 with obj_node_renderer {
-                    if self.node.prototype.activity != undefined {
+                    if self.node.prototype.activities != undefined {
+                        static COLORS = [c_fuchsia, c_blue, c_orange, c_green, c_red, c_yellow];
                         for (var i = 0; i < array_length(self.node.prototype.activities); i++) {
-                            var p = activity_position_for_node(self.node, self.node.cardinal_index, i);
-                            draw_sprite_ext(spr_pixel, 0, p.x, p.y, 1, 1, 0, c_fuchsia, 1.0);
+                            var positions = self.node.prototype.activities[i].positions;
+                            var pos = position_for_furniture_renderer(node);
+                            for (var j = 0; j < array_length(positions); j++) {
+                                var off = positions[j];
+                                var vec = undefined;
+                                static CARDS = [Cardinal.South, Cardinal.West, Cardinal.North, Cardinal.East];
+                                for (var k = 0; k < array_length(CARDS); k++) {
+                                    var dir = CARDS[k];
+                                    dir = dir == Cardinal.West ? Cardinal.East : dir;
+                                    var vec = off[dir].add(pos);
+                                    draw_sprite_ext(spr_pixel, 0, vec.x, vec.y, 1, 1, 0, COLORS[i], 1.0);
+                                }
+                            }
                         }
                     }
                 }

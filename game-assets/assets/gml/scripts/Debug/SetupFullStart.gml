@@ -141,4 +141,7 @@ function full_start_farm_setup(grid) {
 
     //
     GRIDS[LocationId.Farm].write_node(152, 26, ObjectId.SmallGreenhouse, 0);
+
+    //
+    GRIDS[LocationId.Farm].write_node(136, 31, ObjectId.MiniMuseum, 0);
 }

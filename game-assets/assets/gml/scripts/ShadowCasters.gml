@@ -27,7 +27,7 @@ function ShadowGrid(initial=false) constructor {
 
     //
     function caster_add(caster) {
-        if !DEBUG_ASSERTIONS {
+        if DEBUG_ASSERTIONS {
             assert_eq(caster[ShadowCasterField.Id], undefined);
         }
 
@@ -109,8 +109,8 @@ function ShadowGrid(initial=false) constructor {
         array_push(output, self.oversized_cell);
 
         if self.cells != undefined {
-            var xx_max = min(1 + (cull_region[0] + cull_region[2]) div SHADOW_GRID_CELL_SIZE_DEFAULT, ds_grid_width(self.cells) - 1);
-            var yy_max = min(1 + (cull_region[1] + cull_region[3]) div SHADOW_GRID_CELL_SIZE_DEFAULT, ds_grid_height(self.cells) - 1);
+            var xx_max = min(1 + (cull_region[0] + cull_region[2]) div SHADOW_GRID_CELL_SIZE_DEFAULT, ds_grid_width(self.cells));
+            var yy_max = min(1 + (cull_region[1] + cull_region[3]) div SHADOW_GRID_CELL_SIZE_DEFAULT, ds_grid_height(self.cells));
 
             //
             var cell;

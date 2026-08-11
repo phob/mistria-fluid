@@ -48,6 +48,7 @@ function TaxiItinerary(gm_room, dyn_index) {
         arrival_callback: undefined,
         arrival_callback_args: [],
         run_prologue: false,
+        mines: undefined,
         set_arrival_callback: function(func, args) {
             self.arrival_callback_args = args == undefined ? [] : args;
             self.arrival_callback = func;
@@ -84,7 +85,6 @@ function Taxi() constructor {
     self.index_last = undefined;
     self.location_current = undefined;
     self.itinerary = undefined;
-    self.chain = undefined;
     self.room_swap_request = undefined;
 
     //
@@ -234,7 +234,7 @@ function Taxi() constructor {
                     warn("Could not find any transition. Dropping player at the center of the room...");
                 }
                 position = Vec2(room_width() / 2, room_height() / 2);
-            }        
+            }
         }
 
         return {
@@ -296,12 +296,18 @@ function Taxi() constructor {
 
         self.itinerary = undefined;
         self.chain = undefined;
-        GAME_STATS.location_visits[$ location_id_to_string(CURRENT_LOCATION_ID)] += 1;
+        var key = location_id_to_string(CURRENT_LOCATION_ID);
+        var visits = GAME_STATS.location_visits[key] ?? 0;
+        GAME_STATS.location_visits[key] = visits + 1;
     }
 
     //
     function depart() {
         if self.room_swap_request != undefined {
+            if self.itinerary.mines != undefined {
+                DUNGEON_RUNNER.post_proceed(self.itinerary.mines);
+            }
+
             trace(
                 "Executing a swap to '{}'",
                 display_location(
@@ -311,7 +317,13 @@ function Taxi() constructor {
                 ),
             );
             room_goto(self.room_swap_request);
+
+            var output = self.room_swap_request;
             self.room_swap_request = undefined;
+
+            return output;
+        } else {
+            return undefined;
         }
     }
 }

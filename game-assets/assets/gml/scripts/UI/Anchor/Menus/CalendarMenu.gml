@@ -11,6 +11,7 @@ function CalendarMenu(ari) : AnchorMenu(Menu.Calendar) constructor {
     self.select_callback = undefined;
     self.show_year_flag = true;
     self.today = undefined;
+    self.text_for_banner = undefined;
 
     function on_close() {
         if self.pilot_cache != undefined {
@@ -64,8 +65,8 @@ function CalendarMenu(ari) : AnchorMenu(Menu.Calendar) constructor {
     }
 
     function with_banner(banner) {
-        //
-        todo();
+        self.text_for_banner = banner;
+        return self;
     }
 
     //
@@ -76,6 +77,15 @@ function CalendarMenu(ari) : AnchorMenu(Menu.Calendar) constructor {
         self.backplate = ANCHOR.sprite(self.canvas)
             .set_align(Align.Center, Align.Middle)
             .set_sprite(string_to_asset(format("spr_ui_calendar_backplate_{Season}", season)))
+
+        if self.text_for_banner != undefined {
+            var width = string_width_font(self.text_for_banner) + 32;
+            self.banner = ANCHOR.nine_slice(self.backplate)
+                .set_size(width, 14)
+                .set_align(Align.Center, Align.TopIn)
+                .set_sprite(spr_ui_generalstore_prompt_box)
+                .add_text_label(self.text_for_banner)
+        }
 
         self.title = ANCHOR.text(self.backplate)
             .set_align(Align.Center, Align.TopIn)
@@ -158,18 +168,14 @@ function CalendarMenu(ari) : AnchorMenu(Menu.Calendar) constructor {
         self.arrow_right_button.set_sprites_from_key(format("spr_ui_calendar_button_{Season}", season));
         self.arrow_right_icon.set_sprites_from_key(format("spr_ui_calendar_right_arrow_{Season}", season));
 
-        var previous_season_valid = true;
-        var next_season_valid = true;
+        var previous_season_valid = false;
+        var next_season_valid = false;
         var start_of_season = self.time - days(get_days(self.time));
         for (var i = 0; i < 28; i++) {
             var previous = start_of_season - seasons(1) + days(i);
             var next = start_of_season + seasons(1) + days(i);
-            if previous < 0 || !self.filter(previous) {
-                previous_season_valid = false;
-            }
-            if !self.filter(next) {
-                next_season_valid = false;
-            }
+            previous_season_valid |= previous > 0 && self.filter(previous);
+            next_season_valid |= self.filter(next);
         }
 
         self.arrow_left_button.set_unlocked(previous_season_valid);
@@ -214,13 +220,119 @@ function CalendarMenu(ari) : AnchorMenu(Menu.Calendar) constructor {
                 .set_alpha(alpha)
                 .set_z(tile.get_z() - 50);
 
+            //
+            //
+            //
+            //
+            var events = List();
+            if self.show_events_flag {
+                if ARI.wedding_date != undefined
+                    && season == get_seasons(ARI.wedding_date)
+                    && get_days(this_time) == get_days(ARI.wedding_date)
+                {
+                    events.push({
+                        sprite: spr_ui_calendar_icon_event_wedding,
+                        pos: Vec2(-3, -3),
+                        text: get_years(ARI.wedding_date) == get_years(this_time)
+                            ? local_get("misc_local/your_wedding")
+                            : local_get("misc_local/your_anniversary"),
+                    });
+                }
 
-            static MAKE_BUBBLE = function(tile, name) {
-                var width = string_width_font(name) + 24;
+                if ARI.pending_child != undefined
+                    && season == get_seasons(ARI.pending_child.due_date)
+                    && get_days(this_time) == get_days(ARI.pending_child.due_date)
+                {
+                     events.push({
+                        sprite: spr_ui_calendar_icon_event_baby,
+                        pos: Vec2(-3, -3),
+                        text: local_get("misc_local/due_date"),
+                     });
+                }
+
+                for (var i = 0; i < FestivalId.LEN; i++) {
+                    var festival = FESTIVALS[i];
+                    if !festival.prototype.implemented {
+                        continue;
+                    }
+                    if festival.prototype.date.season == season && festival.prototype.date.day - 1 == get_days(this_time) {
+                        events.push({
+                            sprite: festival.prototype.icon,
+                            pos: Vec2(-3, -3),
+                            text: local_get(festival.prototype.name),
+                        });
+                    }
+                }
+
+
+                for (var i = 0; i < array_length(ARI.children); i++) {
+                    var child = ARI.children[i];
+                    if season == get_seasons(child.birthday) && get_days(this_time) == get_days(child.birthday) {
+                        events.push({
+                            sprite: child.get_small_icon(),
+                            pos: Vec2(-3, -3),
+                            text: format(local_get("misc_local/birthday_template"), child.name),
+                        });
+                    }
+                }
+
+
+                for (var i = 0; i < NpcId.LEN; i++) {
+                    var npc = NPCS[i];
+                    if npc.has_met()
+                        && npc_is_unlocked(i)
+                        && npc.prototype.birthday.season == season
+                        && npc.prototype.birthday.day - 1 == get_days(this_time)
+                    {
+                        events.push({
+                            sprite: get_npc_icon(i),
+                            pos: Vec2Zero(),
+                            text: format(local_get("misc_local/birthday_template"), local_get(npc.prototype.name)),
+                        });
+                    }
+                }
+            }
+
+            //
+            if season == get_seasons(self.ari.birthday) && get_days(this_time) == get_days(self.ari.birthday) {
+                events.push({
+                    sprite: spr_ui_generic_birthday_icon,
+                    text: format(local_get("misc_local/birthday_template"), self.ari.name),
+                    pos: Vec2(-2, -2),
+                });
+            }
+
+            var text = "";
+            for (var i = 0; i < events.count(); i++) {
+                var event = events.get(i);
+                text += event.text + "\n";
+                if i > 1 {
+                    continue;
+                }
+
+                var xx = i == 0 ? event.pos.x : abs(event.pos.x);
+                var align = i == 0 ? Align.RightIn : Align.LeftIn;
+                ANCHOR.sprite(tile)
+                    .set_xy(xx, event.pos.y)
+                    .set_align(align, Align.BottomIn)
+                    .set_sprite(event.sprite)
+                    .set_alpha(alpha)
+                    .set_z(tile.get_z() - 50)
+
+            }
+
+            if this_time == self.today {
+                num.set_lut(spr_ui_calendar_weekdays_lut, lut_index);
+            }
+
+            if text != "" {
+                text = string_delete(text, string_length(text), 1);
+                var width = string_width_font(text) + 24;
+                var height = string_height(text) + 8;
                 var bubble = ANCHOR.nine_slice(tile);
                 bubble
                     .set_sprite(spr_ui_calendar_popup_box)
-                    .set_size(width, 18)
+                    .set_size(width, height)
                     .set_alpha(0)
                     .set_align(Align.Center, Align.TopOut)
                     .set_z(tile.get_z() - 200)
@@ -229,107 +341,17 @@ function CalendarMenu(ari) : AnchorMenu(Menu.Calendar) constructor {
                     }, [tile, bubble])
 
                 var text = ANCHOR.text(bubble)
-                    .set_text(name)
+                    .set_text(text)
+                    .set_text_align(TextAlign.Center)
                     .set_align(Align.Center, Align.Middle)
                     .set_lut(COMMON_LUT)
-
-                return {
-                    bubble: bubble,
-                    text: text,
-                }
-            }
-
-            var bubble = undefined;
-            var sprite = undefined;
-            var name = undefined;
-            var pos = undefined;
-            if self.show_events_flag {
-                for (var i = 0; i < NpcId.LEN; i++) {
-                    var npc = NPCS[i];
-                    if npc.has_met()
-                        && npc_is_unlocked(i)
-                        && npc.prototype.birthday.season == season
-                        && npc.prototype.birthday.day - 1 == get_days(this_time)
-                    {
-                        sprite = get_npc_icon(i);
-                        name = format(local_get("misc_local/birthday_template"), local_get(npc.prototype.name));
-                        pos = Vec2(0, 0);
-                    }
-                }
-                for (var i = 0; i < FestivalId.LEN; i++) {
-                    var festival = FESTIVALS[i];
-                    if !festival.prototype.implemented {
-                        continue;
-                    }
-                    if festival.prototype.date.season == season && festival.prototype.date.day - 1 == get_days(this_time) {
-                        sprite = festival.prototype.icon;
-                        name = local_get(festival.prototype.name);
-                        pos = Vec2(-3, -3);
-                    }
-                }
-
-                if sprite != undefined {
-                    ANCHOR.sprite(tile)
-                        .set_xy(pos)
-                        .set_align(Align.RightIn, Align.BottomIn)
-                        .set_sprite(sprite)
-                        .set_alpha(alpha)
-                        .set_z(tile.get_z() - 50)
-
-                    bubble = MAKE_BUBBLE(tile, name);
-                }
-
-                if this_time == self.today {
-                    num.set_lut(spr_ui_calendar_weekdays_lut, lut_index);
-                }
-            }
-
-            //
-            //
-            if ARI.wedding_date != undefined
-                && season == get_seasons(ARI.wedding_date)
-                && get_days(this_time) == get_days(ARI.wedding_date)
-            {
-                sprite = spr_illegal_16;
-                if get_years(ARI.wedding_date) == get_years(this_time) {
-                    name = local_get("misc_local/your_wedding");
-                } else {
-                    name = local_get("misc_local/your_anniversary");
-                }
-                pos = Vec2(-3, -3);
-            }
-
-            if season == get_seasons(self.ari.birthday) && get_days(this_time) == get_days(self.ari.birthday) {
-                var icon = ANCHOR.sprite(tile)
-                    .set_sprite(spr_ui_generic_birthday_icon)
-                    .set_alpha(alpha)
-                    .set_z(tile.get_z() - 50)
-                    .set_y(-2)
-
-                if sprite == undefined {
-                    icon.set_align(Align.RightIn, Align.BottomIn);
-                    icon.set_x(-2);
-                } else {
-                    icon.set_align(Align.LeftIn, Align.BottomIn);
-                    icon.set_x(2);
-                }
-
-                if is_world_room(room()) {
-                    var text = format(local_get("misc_local/birthday_template"), self.ari.name);
-                    if bubble == undefined {
-                        MAKE_BUBBLE(tile, text);
-                    } else {
-                        bubble.bubble.add_height(18);
-                        bubble.text.set_text(bubble.text.get_text() + "\n" + text);
-                    }
-                }
             }
 
             if output.iter mod 4 == 0 {
                 var n = output.iter div 4;
                 ANCHOR.sprite(self.grid_area)
-                    .set_xy((39 * n) + 12, -8)
-                    .set_sprite(spr_ui_hud_font_calendar_weekdays_english)
+                    .set_xy((39 * n) + 12, -11)
+                    .set_sprite(string_to_asset(format("spr_ui_hud_font_calendar_weekdays_{}", asset_local_insert())))
                     .set_index(n)
                     .set_lut(spr_ui_calendar_weekdays_lut, lut_index)
             }

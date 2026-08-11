@@ -34,8 +34,10 @@ function use_item(item, target_pos) {
         case ItemUse.UnlockPetCosmetic:
         case ItemUse.UnlockPetSkin:
         case ItemUse.UnlockDate:
+        case ItemUse.UnlockSong:
         case ItemUse.GainGold:
         case ItemUse.CrackEssenceStone:
+        case ItemUse.CrackEgg:
         case ItemUse.UnpackBundle:
             obj_ari.fsm.change_state(PlayerState.HoldToUse);
             return UseItemSuccess.RemoveLater;

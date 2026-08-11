@@ -318,7 +318,7 @@ function ToolbarMenu() : AnchorMenu(Menu.Toolbar) constructor {
             }
         })
     self.cursor_index = ANCHOR.sprite(self.cursor)
-        .set_xy(-7, -9)
+        .set_xy(-8, -8)
         .set_sprite(spr_ui_hud_toolbar_selected_baked_text)
         .set_align(Align.Center, Align.Middle)
         .set_index(1)

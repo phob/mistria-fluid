@@ -119,19 +119,20 @@ function AriFsm() {
             self.owner.emit_fire();
             var ui_request = owner.ui_mount_request;
             owner.ui_mount_request = false;
-            if self.fsm.state_frame > 15
+            var big_chicken = self.blackboard.try_take("big_chicken", false);
+            if (self.fsm.state_frame > 15 || big_chicken)
                 && (ui_request || INPUT.pressed(InputId.Ride))
                 && ARI.mount != undefined
                 && ARI.held_animal_id == undefined
             {
-                if !self.owner.can_mount() {
+                if !self.owner.can_mount() && !big_chicken {
                     create_notification("misc_local/you_cant_do_that_here");
                 }  else {
                     TANGO.play("SoundEffects/Animals/SteedSummon");
-                    create_animation_effect(owner.x + irandom(8), owner.y - irandom_range(4, 16), -100000, spr_fx_poof1_essence_once);
-                    create_animation_effect(owner.x - irandom(8), owner.y - irandom_range(4, 16), -100000, spr_fx_poof1_essence_once);
-                    create_animation_effect(owner.x + irandom(8), owner.y - irandom_range(4, 16), -100000, spr_fx_poof1_essence_once);
-                    create_animation_effect(owner.x - irandom(8), owner.y - irandom_range(4, 16), -100000, spr_fx_poof1_essence_once);
+                    create_animation_effect(owner.x + irandom(8), owner.y - irandom_range(4, 16), -10_000, spr_fx_poof1_essence_once);
+                    create_animation_effect(owner.x - irandom(8), owner.y - irandom_range(4, 16), -10_000, spr_fx_poof1_essence_once);
+                    create_animation_effect(owner.x + irandom(8), owner.y - irandom_range(4, 16), -10_000, spr_fx_poof1_essence_once);
+                    create_animation_effect(owner.x - irandom(8), owner.y - irandom_range(4, 16), -10_000, spr_fx_poof1_essence_once);
 
                     owner.fsm.change_state(PlayerState.MountDefault);
                     return;
@@ -537,7 +538,7 @@ function AriFsm() {
                         //
                         self.relative_cell_select = rotated_relative.rotate(cardinal_to_inverse_mat2(owner.cardinal));
                     }
-                    var output = INPUT.take_press(InputId.RotateLeft) - INPUT.take_press(InputId.RotateRight);
+                    var output = INPUT.pressed(InputId.RotateLeft) - INPUT.pressed(InputId.RotateRight);
                     if output != 0 && array_length(proto.cardinals) > 1 {
                         TANGO.play("SoundEffects/UI/UIRotateBuilding");
                     }
@@ -955,8 +956,6 @@ function AriFsm() {
             if card != undefined {
                 self.owner.set_cardinal(card);
             }
-
-            refresh_achievements();
         })
         .spawn()
     )
@@ -1072,10 +1071,13 @@ function AriFsm() {
             }
 
             if fsm.state_frame % 6 == 0 {
-                owner.par.perform_outline = !owner.par.perform_outline;
                 self.electrocute_idx += 1;
-                //
-                owner.par.image_blend = self.colors[(self.electrocute_idx div 2) % 2];
+                if owner.par.perform_outline == undefined {
+                    //
+                    owner.par.perform_outline = self.colors[(self.electrocute_idx div 2) % 2];
+                } else {
+                    owner.par.perform_outline = undefined;
+                }
 
                 if owner.par.blend != undefined {
                     if self.electrocute_idx >= array_length(self.electrocute_colors) {
@@ -1098,8 +1100,7 @@ function AriFsm() {
             owner.par.render_tool_effect = true;
             owner.par_offset.x = owner.default_par_offset.x;
             owner.par_offset.y = owner.default_par_offset.y;
-            owner.par.perform_outline = false;
-            owner.par.image_blend = c_white;
+            owner.par.perform_outline = undefined;
 
             if instance_exists(self.static_effect) {
                 instance_destroy(self.static_effect);
@@ -1120,6 +1121,7 @@ function AriFsm() {
     .add_state(StateBuilder(PlayerState.Cutscene)
         .create(function() {
             self.watch_target = undefined;
+            self.set_depth = true;
         })
         .start(function() {
             var do_not_set_to_idle = blackboard.try_take("do_not_set_idle", false);
@@ -1128,7 +1130,9 @@ function AriFsm() {
             }
         })
         .step(function() {
-            owner.depth = get_instance_depth(owner.y);
+            if self.set_depth {
+                owner.depth = get_instance_depth(owner.y);
+            }
 
             //
             if owner.breathe_fire_in_other_states {
@@ -1299,6 +1303,9 @@ function AriFsm() {
 
             owner.receiver.status = set_flag(owner.receiver.status, ReceiverStatus.Aerial);
             self.move = Vec2();
+            self.max_move_frames = self.owner.jump_data.frames;
+            self.goal_x = self.owner.jump_goal.x;
+            self.goal_y = self.owner.jump_goal.y;
         })
         .step(function() {
             self.owner.emit_fire();
@@ -1345,9 +1352,22 @@ function AriFsm() {
                 }
             }
 
-            //
-            self.move.x = self.jump_spd.x;
-            self.move.y = self.jump_spd.y;
+            if self.fsm.state_frame < self.max_move_frames {
+                self.move.x = self.jump_spd.x;
+                self.move.y = self.jump_spd.y;
+
+                //
+                if self.fsm.state_frame == (self.max_move_frames - 1) {
+                    self.move.x = 0;
+                    self.move.y = 0;
+
+                    owner.x = self.goal_x;
+                    owner.y = self.goal_y;
+                }
+            } else {
+                self.move.x = 0;
+                self.move.y = 0;
+            }
 
             move_ari(self.owner, self.move);
             update_depth_items(self.owner);
@@ -1972,12 +1992,14 @@ function AriFsm() {
                 case ItemUse.IdentifyItem:
                 case ItemUse.OpenChest:
                 case ItemUse.UnlockDate:
+                case ItemUse.UnlockSong:
                     self.modifier = 3;
                     sfx = "SoundEffects/UI/HoldActionLong";
                     break;
                 case ItemUse.UnlockCosmetic:
                 case ItemUse.LearnRecipe:
                 case ItemUse.UnlockAnimalCosmetic:
+                case ItemUse.CrackEgg:
                 case ItemUse.UnlockPetCosmetic:
                 case ItemUse.UnlockPetSkin:
                     self.modifier = 2;
@@ -2072,7 +2094,7 @@ function AriFsm() {
                         }
 
                         array_push(GAME_STATS.items_eaten, {
-                            item: self.live_item.pretty_print(),
+                            item: item_id_to_string(self.live_item.item_id),
                             day: total_days(),
                             hour: CLOCK.hour(),
                             minute: CLOCK.minute(),
@@ -2448,6 +2470,59 @@ function AriFsm() {
                             .insert(self.live_item.animal_cosmetic.cosmetic);
                         new_item_popup(self.live_item);
                         break;
+                    case ItemUse.CrackEgg:
+                        var variants = ARI.animal_variant_unlocks[AnimalKind.Horse];
+                        variants.insert("giant_chicken_gold");
+                        variants.insert("giant_chicken_white");
+                        var popup = new_item_popup(self.live_item, true);
+
+                        rainbow_text(popup.title.parent, "misc_local/big_chicken_exclamation")
+                            .set_align(Align.Center, Align.Middle);
+
+                        popup.title.disable();
+
+                        //
+                        TANGO.play("SoundEffects/Animals/ChickenPositiveReact", owner.x, owner.y);
+                        var emitters = array_create(50);
+                        for (var i = 0; i < 50; i++) {
+                            var snd;
+                            switch i % 5 {
+                                case 0: snd = "SoundEffects/Animals/ChickenBabyAmbient"; break;
+                                case 1: snd = "SoundEffects/Animals/ChickenAAmbient"; break;
+                                case 2: snd = "SoundEffects/Animals/ChickenBAmbient"; break;
+                                case 3: snd = "SoundEffects/Animals/ChickenCAmbient"; break;
+                                case 4: snd = "SoundEffects/Animals/ChickenDAmbient"; break;
+                            }
+                            array_push(emitters, new SoundInstanceController(TANGO.play(snd, owner.x, owner.y)));
+                        }
+
+                        new_chain().append(LinkId.Await, function(emitters) {
+                            if !game_paused() {
+                                if ARI.mount != undefined {
+                                    ARI.mount.kind = AnimalKind.Horse;
+                                    ARI.mount.prototype = ANIMAL_PROTOTYPES[AnimalKind.Horse];
+                                    ARI.mount.kind = AnimalKind.Horse;
+                                    ARI.mount.variant = "giant_chicken_white";
+                                    ARI.mount.cosmetic = undefined;
+                                    ARI.mount_mirroring_animal = undefined;
+                                    obj_ari.ui_mount_request = true;
+                                    self.blackboard.insert("big_chicken", true);
+                                }
+
+                                for (var i = 0; i < array_length(emitters); i++) {
+                                    var emitter = emitters[i];
+                                    if emitter != undefined {
+                                        emitter.request_stop();
+                                    }
+                                }
+                                return true;
+                            } else if TICK % 45 == 0 {
+                                TANGO.play("SoundEffects/Animals/ChickenPositiveReact", obj_ari.x, obj_ari.y);
+                            }
+                            return false;
+                        }, [emitters]);
+
+                        break;
                     case ItemUse.UnlockPetCosmetic:
                         array_push(ARI.pet_cosmetic_sets_unlocked, self.live_item.pet_cosmetic_set_name);
                         new_item_popup(self.live_item);
@@ -2459,6 +2534,10 @@ function AriFsm() {
                     case ItemUse.UnlockDate:
                         ARI.date_unlocks[self.live_item.prototype.date_unlock] = true;
                         new_date_popup(self.live_item.prototype.date_unlock);
+                        break;
+                    case ItemUse.UnlockSong:
+                        array_push(ARI.song_unlocks, self.live_item.prototype.song);
+                        new_item_popup(self.live_item);
                         break;
                     case ItemUse.LearnRecipe:
                         if self.live_item.prototype.set_unlock != undefined {
@@ -3028,7 +3107,6 @@ function AriFsm() {
                         undefined,
                         undefined,
                         undefined,
-                        true
                     );
                     self.callback = sow;
                     self.range_pattern_max = RangePattern.One;
@@ -4003,6 +4081,13 @@ function AriFsm() {
             }
 
             self.in_idle_variant = false;
+
+            self.mount_cycle_override = undefined;
+            if ARI.mount.variant == "giant_chicken_white"
+                || ARI.mount.variant == "giant_chicken_gold"
+            {
+                self.mount_cycle_override = MountCycle.Back;
+            }
         })
         .step(function() {
             //
@@ -4130,11 +4215,13 @@ function AriFsm() {
             owner.set_animation(new_player_animation);
 
             if self.move.is_zero() == false && self.frame_ticked_over && (floor(self.frame) == 0 || floor(self.frame == 2)) {
-                var mount_cycle;
-                if floor(self.frame) == 0 {
-                    mount_cycle = MountCycle.Front;
-                } else {
-                    mount_cycle = MountCycle.Back;
+                var mount_cycle = self.mount_cycle_override;
+                if mount_cycle == undefined {
+                    if floor(self.frame) == 0 {
+                        mount_cycle = MountCycle.Front;
+                    } else {
+                        mount_cycle = MountCycle.Back;
+                    }
                 }
                 check_footsteps(self.owner, self.move, mount_cycle);
             }
@@ -4511,7 +4598,14 @@ function mounted_par_offsets(in_idle_variant) {
     var ari_animal_offset_y = 0.0;
 
     try {
-        var offsets = ARI.mount.prototype.animations.get(ARI.mount.animation)[$ "player_offsets"];
+        var offsets;
+        if ARI.mount.variant == "giant_chicken_white"
+            || ARI.mount.variant == "giant_chicken_gold"
+        {
+            offsets = fiddle_get(format("ranching/giant_chicken_player_offsets/{}/player_offsets", ARI.mount.animation));
+        } else {
+            offsets = ARI.mount.prototype.animations.get(ARI.mount.animation)[$ "player_offsets"];
+        }
         if offsets != undefined {
             var cardinal = owner.cardinal == Cardinal.West ? Cardinal.East : owner.cardinal;
             var data;
@@ -4604,7 +4698,7 @@ function mounted_draw_after() {
             c_white,
             0.0,
         );
-        shader_reset_to_default();
+        gpu_reset_extra();
     }
 
     if sprites.top_cosmetic != undefined {
@@ -4629,7 +4723,7 @@ function mounted_draw_after() {
     //
     self.timer += (40 / 60) * (!non_cutscene_pause() || ANCHOR.get_menu(Menu.Textbox) != undefined);
 
-    if self.timer >= frame_info[self.frame].duration {
+    if self.timer >= frame_info[clamp(self.frame, 0, array_length(frame_info) - 1)].duration {
         //
         self.timer -= frame_info[self.frame].duration;
         self.frame = (self.frame + 1) % sprite_info.num_subimages;

@@ -2,6 +2,7 @@
 enum PlayerBuildingKind {
     Stable,
     Greenhouse,
+    MiniMuseum,
 }
 
 function create_building_prototype(object_id, fiddle_obj) {
@@ -71,8 +72,10 @@ function create_building_prototype(object_id, fiddle_obj) {
 
         //
         prototype.player_building_kind = PlayerBuildingKind.Greenhouse;
+    } else if fiddle_obj[$ "mini_museum"] != undefined {
+        prototype.player_building_kind = PlayerBuildingKind.MiniMuseum;
     } else {
-        crash("building `{ObjectId}` must have table `stable` or `greenhouse`", object_id);
+        crash("building `{ObjectId}` must have table `stable` or `greenhouse` or `mini_museum`", object_id);
     }
 
     return prototype;
@@ -182,6 +185,9 @@ function write_building_to_location(grid, xx, yy, proto, ctx) {
             //
             node.greenhouse_watered_positions = undefined;
 
+            break;
+        case PlayerBuildingKind.MiniMuseum:
+            node.stable = undefined;
             break;
     }
 
