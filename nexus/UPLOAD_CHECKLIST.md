@@ -28,13 +28,15 @@
 5. Files tab: upload `dist/ARPGMovement-2.2.0.zip`, version `2.2.0`.
 
 6. Changelog:
-   - Clicking a barrel, crate, or debris pile in the mines now draws your
-     weapon automatically, just like rocks equip the pickaxe.
-   - The same works for breakables everywhere, including branches and leaf
-     piles on the farm.
-   - Weapon swaps only happen when the breakable is within swing range;
-     out-of-range clicks keep your current item.
-   - Removed the diagnostic click logging that shipped in 2.1.1.
+   - Clicking a breakable (mine barrels, crates, debris; farm branches and
+     leaf piles) draws your weapon, just like rocks equip the pickaxe.
+   - Mines: the weapon is drawn only when a monster is near you or your
+     cursor; other clicks keep your selection (new sword_enemy_range_px
+     setting).
+   - Clicking the overhanging top of a rock or tree no longer whiffs; the
+     strike re-aims at the object you clicked.
+   - Click-to-move and interactions no longer path across open water;
+     impossible routes show the red poof.
 
 7. Keep `nexus/1936b44d-ed82-46e9-bd57-e28db83274d3-v2.png` as the main
    2.0 image. A short Auto Tool Swapping GIF would also make the feature
