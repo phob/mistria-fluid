@@ -18,11 +18,12 @@ Mouse movement and automatic tool swapping for action-RPG-style play:
   swimming without replacing their normal actions.
 - **Auto Tool Swapping** — left-click a nearby rock, tree, stump, or dig spot
   and the correct usable tool is selected from anywhere in the inventory
-  before the action happens. Tiles the game says are waterable, tillable, or
-  hold a bug select the watering can, hoe, or net. A click the held item
-  already acts on is left alone, so deliberate selections survive. General
-  action clicks in the mines select a weapon. Press **F6** to toggle this
-  feature; the choice is remembered.
+  before the action happens. Clicking fishable water equips the fishing rod;
+  tiles the game says are waterable, tillable, or hold a bug select the
+  watering can, hoe, or net. A click the held item already acts on is left
+  alone, so deliberate selections survive. General action clicks in the mines
+  select a weapon. Press **F6** to toggle this feature; the choice is
+  remembered.
 - **Click where the cursor points** — clicking with a weapon or tool turns the
   player toward the cursor first, and keeps aiming every swing of a repeating
   tool while the button is held. Action clicks stay aimed at the cursor while
@@ -38,13 +39,13 @@ Mouse movement and automatic tool swapping for action-RPG-style play:
 
 Built as a [MOMI](https://github.com/Garethp/Mods-of-Mistria-Installer)
 (0.14.0+) MMAPI mod. For Fields of Mistria 1.0, use the first official MOMI
-release that explicitly supports 1.0 or a newer release. The entire mod is one
-GML file:
-`momi-mod/arpg_movement/gml/ArpgMovement.gml`.
+release that explicitly supports 1.0 or a newer release. The GML source is
+split by domain under `momi-mod/arpg_movement/gml/`; `ArpgMovement.gml` is the
+single boot/registration file.
 
-All tunables live in
-`%LOCALAPPDATA%\FieldsOfMistria\mod_data\arpg_movement\arpg_movement.json`
-after first launch.
+All tunables are available in **Journal → Settings → ARPG Movement**. Changes
+are saved immediately to
+`%LOCALAPPDATA%\FieldsOfMistria\mod_data\arpg_movement\arpg_movement.json`.
 
 ## Install / iterate
 

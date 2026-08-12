@@ -1,8 +1,9 @@
 # Session handoff — 2026-08-11
 
 Working state for the next Claude session. Read alongside AGENTS.md (auto-loaded).
-Everything below is in `momi-mod/arpg_movement/gml/ArpgMovement.gml`, installed
-to the game (compile gate OK), and **released as 2.2.1**
+The functions discussed below now live in domain files under
+`momi-mod/arpg_movement/gml/`; see AGENTS.md for the current source map. The
+2.2.1 state was installed to the game (compile gate OK) and **released as 2.2.1**
 (`dist/ARPGMovement-2.2.1.zip`, 2026-08-11) after the change-8 picker fix
 resolved the user's rock/axe mis-selection.
 
