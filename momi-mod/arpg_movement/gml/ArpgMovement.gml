@@ -1,80 +1,4 @@
 // ARPG Movement
-//
-// Mouse movement for the player:
-// - Hold right mouse past a short threshold to begin steering toward the
-//   cursor immediately. Walks when the cursor is within `walk_within_px`,
-//   runs beyond `run_beyond_px`, and keeps its current pace in between
-//   (hysteresis).
-// - Releasing within `tap_seconds` commits the cursor position to pathfinding,
-//   even if responsive steering has already begun. This intentional overlap
-//   gives clicks a forgiving release window without making holds feel delayed.
-//   When `click_to_interact` is enabled, tapping a distant interactable paths
-//   to its nearest reachable side and performs the vanilla interaction on
-//   arrival. Releases near the player re-inject the press instead, so normal
-//   tap-to-interact still works. A path that would cross open water is
-//   refused (invalid marker) — Pathfind ignores collision, and walking on
-//   water is not a move the player can make; interact paths pick a dry
-//   approach (bridge, far bank) when one exists.
-// - The raw right-button press is muted the moment it lands, so Interact
-//   (and anything else bound to right mouse) never fires during a hold.
-// - Any keyboard movement or discrete player command (actions, menus, toolbar,
-//   placement controls) cancels a mouse-driven walk before vanilla reads that
-//   same frame. Walk remains a speed modifier; the muted right-click gesture
-//   retains ownership so it can retarget or hand over to steering.
-// - Steering also works while swimming and mounted. Taps don't pathfind in
-//   either case; mounted taps are handed back to vanilla Interact.
-// - Mouse movement can be narrowed in the config: `hold_to_steer` and
-//   `tap_to_pathfind` disable the hold and tap gestures independently, and
-//   `mouse_move_mounted_only` keeps right mouse fully vanilla except while
-//   mounted. When no enabled feature can claim the button in the current
-//   state, the physical press is never muted, so Interact fires exactly as
-//   in the unmodded game.
-// - A hotkey (config `auto_select_hotkey`, default F6, chords like
-//   "SHIFT+F6" allowed) toggles action-item auto-selection. When enabled and left mouse is
-//   bound to a vanilla tool-use action, a clicked rock, tree/stump, or
-//   dig site selects its usable inventory tool before vanilla consumes that
-//   same click — even when the node is out of swing range, where the armed
-//   tool whiffs exactly as vanilla would (a tree's choppable cells are only
-//   its 2x2 trunk, so this happens point-blank on big trunks and logs) —
-//   and a clicked breakable (mine barrels, crates, and debris,
-//   farm branches and leaf piles) arms an inventory weapon the same way. Failing that, the watering can, hoe, or net is selected when
-//   the game itself says that tool would act on the clicked tile, which covers
-//   watering, tilling, and bug catching. The net is auto-selected only when a
-//   real bug sits on the tile: the game's own net test also counts a
-//   Rockclod's flying rocks and bombs (a deliberate net swing can catch
-//   them), and that trick must not hijack a combat click. A click the held item already acts on
-//   is always left alone, so deliberate selections survive. Under the game's
-//   continuous-action option (left mouse bound to UseToolRepeated), a held
-//   button re-runs node selection between repeats, so sweeping from a tree
-//   onto a stone swaps the axe for the pickaxe mid-hold; terrain tools and
-//   the mine weapon draw still change only on a fresh click, and a held
-//   weapon in the mines is never traded away. In the mines,
-//   combat outranks tools: while a live monster is close to the player
-//   (`sword_enemy_range_px`) or under the cursor, any world click arms an
-//   inventory weapon — even a click on a rock. With no monster near, mine
-//   clicks keep the current selection, so a hand-picked fishing rod casts.
-// - Action clicks keep aiming at the cursor while the player walks. Vanilla
-//   gives up on mouse aiming as soon as a moving player stops nudging the
-//   mouse, and silently falls back to the tile the player faces; the mod holds
-//   mouse aiming until the player actually walks away from the cursor.
-// - Clicking with a weapon or a tool turns the player toward the cursor first,
-//   so swings, casts, and tool reach follow the mouse instead of whichever
-//   direction the player last walked in. Facing keeps following the cursor for
-//   as long as the action button is held, which aims every swing of a
-//   repeating tool. Walking still wins: a movement key or a steering hold sets
-//   the facing itself, exactly as in vanilla.
-// - Left- or right-clicking outside the topmost normal pause menu requests its
-//   own Back behavior, preserving nested screens and items held by menu cursors.
-//   Dialogue, cutscene UI, and modal prompts stay out.
-//
-// Steering works by feeding the cursor direction into the input system as a
-// virtual analog stick (`INPUT.gp_left_stick`), which the player's normal
-// movement code reads through the default `left_stick_*` bindings. Movement,
-// collision sliding, facing, and animation are all vanilla — the mod never
-// touches the player's state machine while steering. Slow walking near the
-// cursor, or while the player holds their bound Walk control, is done the same
-// way: by holding the vanilla Walk binding down. Taps drive the game's own
-// PlayerState.Pathfind, like scripted walks.
 
 #macro ARPG_MOVEMENT_CONFIG_VERSION 1
 
@@ -432,7 +356,14 @@ function __arpg_movement_inject_input_press(_input_id) {
 // Menus in this list deliberately consume Back themselves instead of enabling
 // AnchorMenu's generic close listener. They are ordinary pause menus with
 // internal pages, so an outside click should request Back, not bypass them.
-function __arpg_movement_menu_has_safe_custom_back(_type) {
+// Spawned popups with manual exit listening need the same treatment: their
+// first button owns MenuBack and may run a Cancel callback before closing.
+function __arpg_movement_menu_has_safe_custom_back(_menu) {
+    if (_menu.type == Menu.Popup && _menu.manual_exit_listening) {
+        return true;
+    }
+
+    var _type = _menu.type;
     switch (_type) {
         case Menu.Almanac:
         case Menu.Adoption:
@@ -476,7 +407,7 @@ function __arpg_movement_try_close_menu_from_outside() {
         // here. Ordinary pause menus with a custom Back handler receive a
         // synthetic Back press so their own internal navigation remains intact.
         var _custom_back = _menu.data.pause == PauseStatus.MENU
-            && __arpg_movement_menu_has_safe_custom_back(_menu.type);
+            && __arpg_movement_menu_has_safe_custom_back(_menu);
         var _allows_outside_close = _menu.listen_for_exit_flag
             || _custom_back;
         if (__arpg_movement_dev_logging()) {
@@ -1501,7 +1432,13 @@ function __arpg_movement_auto_select_action_item(_rt) {
                 _minimum_quality = _node.prototype.minimum_quality;
                 break;
             case ObjectCategory.DigSite:
-                _tool_type = ToolType.Shovel;
+                // Vanilla lets either tool excavate a dig site. Prefer the
+                // shovel, but fall back to a pickaxe when none is carried.
+                var _shovel_index = __arpg_movement_find_item(
+                    ItemUse.UseTool, ToolType.Shovel
+                );
+                _tool_type = _shovel_index == undefined
+                    ? ToolType.PickAxe : ToolType.Shovel;
                 break;
             case ObjectCategory.Breakable:
                 // Mine barrels, crates, and debris (and farm branches/leaf
