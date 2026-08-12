@@ -5,18 +5,12 @@
 Move with intention, interact from a distance, and let the right tool snap into your hand when you need it.
 [/center]
 
-[center][img]https://raw.githubusercontent.com/phob/mistria-fluid/main/nexus/assets/floral-bouquet-separator.png[/img][/center]
-
-[size=4][b][color=#f6b24a]FIELDS OF MISTRIA 1.0 READY[/color][/b][/size]
-[b]ARPG Movement 2.2.1 is ready for Fields of Mistria 1.0.[/b]
-[b]Requires MOMI 0.15.2 or newer.[/b] Download it from the [url=https://www.nexusmods.com/fieldsofmistria/mods/78]official Mods of Mistria Installer page[/url], then install this mod normally.
-
 [center][img]https://raw.githubusercontent.com/phob/mistria-fluid/main/nexus/assets/floral-vine-separator.png[/img][/center]
 
 [size=5][b]YOUR NEW MOVEMENT KIT[/b][/size]
 
 [list]
-[*][b]AUTO TOOL SWAPPING[/b] — Click a rock, tree, stump, dig spot, dry crop, tillable patch, bug, or breakable and the right tool or weapon is equipped before your character acts.[/*]
+[*][b]AUTO TOOL SWAPPING[/b] — Click a rock, tree, stump, dig spot, dry crop, tillable patch, bug, breakable, or fishable water and the right tool or weapon is equipped before your character acts.[/*]
 [*][b]CURSOR AIMING[/b] — Swings, casts, and tool reach follow your cursor, swing after swing, even while you are walking.[/*]
 [*][b]SMART INTERACTIONS[/b] — Click a distant NPC, chest, door, or usable object to walk into range and interact.[/*]
 [*][b]MOUSE-DRIVEN MOVEMENT[/b] — Hold right mouse to steer; tap right mouse to path to a destination.[/*]
@@ -54,7 +48,7 @@ Enabled by default and built around your usual left-click tool action:
 [*]In the [b]mines[/b], your weapon is drawn the moment a monster is close to you or under your cursor — combat always outranks tools.[/*]
 [/list]
 
-The mod searches your whole inventory and changes toolbar pages when needed. It will not equip a tool that is too weak, missing, or out of reach. Anything the item already in your hand can do where you clicked is left alone, so seeds, placements, and the tool you deliberately picked are never swapped away.
+The mod searches your whole inventory and changes toolbar pages when needed. It will not equip a tool that is too weak or missing. A fresh click on a recognized object can still arm the correct tool just outside its reach, so you can step closer and swing again. Anything the item already in your hand can do where you clicked is left alone, so seeds, placements, and the tool you deliberately picked are never swapped away.
 
 Press [b]F6[/b] to toggle Auto Tool Swapping. Your choice is remembered, and the key can be changed with the [b]auto_select_hotkey[/b] setting.
 
@@ -87,7 +81,7 @@ Action clicks also keep aiming at the cursor while you walk, instead of snapping
 
 [size=5][b]CONFIGURATION[/b][/size]
 
-After first launch, settings are created in [b]%LOCALAPPDATA%\FieldsOfMistria\mod_data\arpg_movement\arpg_movement.json[/b].
+Open [b]Journal → Settings → ARPG Movement[/b] to change gameplay options in game. Changes save immediately to [b]%LOCALAPPDATA%\FieldsOfMistria\mod_data\arpg_movement\arpg_movement.json[/b].
 
 [list]
 [*][b]enabled[/b] — Enable or disable the mod without uninstalling it.[/*]
@@ -105,8 +99,4 @@ After first launch, settings are created in [b]%LOCALAPPDATA%\FieldsOfMistria\mo
 [*][b]cursor_targeting_on_action[/b] — Toggle cursor aiming for action clicks made while walking.[/*]
 [*][b]click_outside_closes_menus[/b] — Toggle closing menus by clicking outside them.[/*]
 [*][b]sword_enemy_range_px[/b] — How close a monster must be for a mine click to draw your weapon (clicks directly at a monster always do).[/*]
-[*][b]dev_logging[/b] — Write a diagnostic log of every click decision to [b]mod_data\arpg_movement\logs[/b]. Leave off unless you are reporting a bug.[/*]
 [/list]
-
-[size=5][b]COMPATIBILITY[/b][/size]
-[b]Version 2.2.1 is ready for Fields of Mistria 1.0.[/b] Gamepad play, cutscenes, scripted movement, and rebound controls are respected. If Interact is moved away from right mouse, right mouse becomes a dedicated movement button.

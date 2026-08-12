@@ -1,9 +1,8 @@
-# ARPG Movement 2.1.1 (for Fields of Mistria 1.0)
+# ARPG Movement 2.3.0 (for Fields of Mistria 1.0)
 
-ARPG Movement 2.1.1 is ready for Fields of Mistria 1.0. Installing it requires
-an official MOMI build that explicitly supports the game's 1.0 release;
-pre-1.0 installer builds fail their game compatibility checks before this mod
-is compiled.
+ARPG Movement 2.3.0 is ready for Fields of Mistria 1.0 and requires MOMI
+0.15.2 or newer. Older installers either lack Fields of Mistria 1.0 support or
+the MMAPI hotkey function used by Auto Tool Swapping.
 
 Mouse movement and automatic tool swapping for action-RPG-style play:
 
@@ -38,14 +37,15 @@ Mouse movement and automatic tool swapping for action-RPG-style play:
   untouched.
 
 Built as a [MOMI](https://github.com/Garethp/Mods-of-Mistria-Installer)
-(0.14.0+) MMAPI mod. For Fields of Mistria 1.0, use the first official MOMI
-release that explicitly supports 1.0 or a newer release. The GML source is
-split by domain under `momi-mod/arpg_movement/gml/`; `ArpgMovement.gml` is the
-single boot/registration file.
+(0.15.2+) MMAPI mod. For Fields of Mistria 1.0, use MOMI 0.15.2 or newer. The
+GML source is split by domain under `momi-mod/arpg_movement/gml/`;
+`ArpgMovement.gml` is the single boot/registration file.
 
-All tunables are available in **Journal → Settings → ARPG Movement**. Changes
-are saved immediately to
+Gameplay options are available in **Journal → Settings → ARPG Movement**.
+Changes are saved immediately to
 `%LOCALAPPDATA%\FieldsOfMistria\mod_data\arpg_movement\arpg_movement.json`.
+The default-off `dev_logging` diagnostic option is intentionally available
+only by editing that file.
 
 ## Install / iterate
 
@@ -60,6 +60,6 @@ cd "/d/SteamLibrary/steamapps/common/Fields of Mistria" && \
 
 ## Publishing
 
-- `dist/ARPGMovement-2.1.1.zip` — Nexus-ready package.
+- `dist/ARPGMovement-2.3.0.zip` — Nexus-ready package.
 - `nexus/DESCRIPTION.bbcode` — mod page description (BBCode).
 - `nexus/UPLOAD_CHECKLIST.md` — upload steps.

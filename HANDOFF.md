@@ -1,4 +1,13 @@
-# Session handoff — 2026-08-11
+# Session handoff — 2026-08-12
+
+## 2.3.0 release
+
+ARPG Movement 2.3.0 packages the current domain-split source and adds the
+in-game settings category, fishable-water fishing-rod Auto-Swap, dig-site
+pickaxe fallback, and corrected layered-popup outside-click behavior. The
+release archive is `dist/ARPGMovement-2.3.0.zip` with `arpg_movement` at its
+root. Manifest and `mmapi_mod_declare` both carry version 2.3.0. Diagnostic
+logging remains config-file-only and defaults to false.
 
 Working state for the next Claude session. Read alongside AGENTS.md (auto-loaded).
 The functions discussed below now live in domain files under

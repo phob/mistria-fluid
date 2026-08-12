@@ -536,19 +536,83 @@ function arpg_movement_settings_open_page() {
         "Click outside menus to close",
         "enabled"
     );
+}
 
-    __arpg_movement_settings_add_section(self, "Diagnostics");
-    __arpg_movement_settings_add_checkbox(
-        self,
-        "dev_logging",
-        "Diagnostic logging",
-        "always"
-    );
+// create_category always appends to both the scroller and controller pilot.
+// Move our completed row immediately before Exit while preserving the row
+// positions and alternating backgrounds that the Settings constructor chose.
+// Reordering the whole tail also keeps this correct when another mod already
+// appended a category after Exit.
+function __arpg_movement_settings_place_before_exit(_menu, _category) {
+    var _exit = _menu.categories[$ "exit_cat"];
+    if (_exit == undefined) return false;
+
+    var _children = _menu.category_scroller.root.children;
+    var _category_pos = array_pos(_children, _category);
+    var _exit_pos = array_pos(_children, _exit);
+    if (_category_pos < 0 || _exit_pos < 0) return false;
+    if (_category_pos + 1 == _exit_pos) return true;
+
+    var _pilot = _menu.category_pilot;
+    var _pilot_map = _pilot.map;
+    var _category_row = -1;
+    var _exit_row = -1;
+    var _selected = _pilot.get();
+    for (var _yy = 0; _yy < array_length(_pilot_map); _yy++) {
+        for (var _xx = 0; _xx < array_length(_pilot_map[_yy]); _xx++) {
+            var _node = _pilot_map[_yy][_xx];
+            if (_node == _category) _category_row = _yy;
+            if (_node == _exit) _exit_row = _yy;
+        }
+    }
+    if (_category_row < 0 || _exit_row < 0) return false;
+
+    // Category buttons are one-per-row. Refuse to move an unexpectedly
+    // shared row instead of disturbing another control's navigation.
+    var _category_row_size = array_length(_pilot_map[_category_row]);
+    if (_category_row_size != 1) return false;
+
+    var _row_y = [];
+    var _row_enabled_sprite = [];
+    for (var _i = 0; _i < array_length(_children); _i++) {
+        _row_y[_i] = _children[_i].get_y();
+        _row_enabled_sprite[_i] = _children[_i].enabled_sprite;
+    }
+
+    array_delete(_children, _category_pos, 1);
+    if (_category_pos < _exit_pos) _exit_pos -= 1;
+    array_insert(_children, _exit_pos, _category);
+    _menu.category_scroller.root.children = _children;
+
+    for (var _i = 0; _i < array_length(_children); _i++) {
+        var _child = _children[_i];
+        _child.set_y(_row_y[_i]);
+        _child.enabled_sprite = _row_enabled_sprite[_i];
+        _child.set_sprite(_child.enabled_sprite);
+    }
+
+    var _moved_row = _pilot_map[_category_row];
+    array_delete(_pilot_map, _category_row, 1);
+    if (_category_row < _exit_row) _exit_row -= 1;
+    array_insert(_pilot_map, _exit_row, _moved_row);
+    _pilot.map = _pilot_map;
+
+    // Preserve whichever category was selected before the insertion.
+    if (_selected != undefined) {
+        for (var _yy = 0; _yy < array_length(_pilot_map); _yy++) {
+            for (var _xx = 0; _xx < array_length(_pilot_map[_yy]); _xx++) {
+                if (_pilot_map[_yy][_xx] != _selected) continue;
+                _pilot.position.x = _xx;
+                _pilot.position.y = _yy;
+            }
+        }
+    }
+    return true;
 }
 
 // The menu-opened hook runs after SettingsMenu has built its vanilla
-// categories, so this safely appends one more category without replacing the
-// engine constructor or claiming a new Menu enum value.
+// categories, so this adds one category without replacing the engine
+// constructor or claiming a new Menu enum value.
 function arpg_movement_settings_menu_opened(_ctx) {
     if (_ctx.kind != Menu.Settings) return;
 
@@ -564,4 +628,5 @@ function arpg_movement_settings_menu_opened(_ctx) {
     );
     _category.text_label.set_text("ARPG Movement");
     _menu.categories[$ "arpg_movement"] = _category;
+    __arpg_movement_settings_place_before_exit(_menu, _category);
 }
