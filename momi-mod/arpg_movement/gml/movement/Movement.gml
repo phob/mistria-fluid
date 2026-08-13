@@ -430,6 +430,7 @@ function arpg_movement_clock_tick(_ctx) {
     var _cfg = arpg_movement_config();
 
     __arpg_movement_sync_context(_rt);
+    __arpg_movement_update_pending_planted_tree(_rt);
 
     // Before any early return: the displacement this reads has to be a single
     // frame's worth to predict the next one.

@@ -146,7 +146,17 @@ function __arpg_movement_plan_tool_retarget(_item) {
 // sprite-overhang clicks from the same settled pose. The guard fires once per
 // swing, so held repeats stay corrected too.
 function arpg_movement_items_use_guard(_item) {
-    if (!instance_exists(obj_ari) || game_paused() || ON_GAMEPAD) {
+    if (!instance_exists(obj_ari)) {
+        return undefined;
+    }
+
+    // Track every input method and even disabled auto-selection: a tree the
+    // player plants now should still be protected if mouse auto-select is
+    // enabled later. The guard sees the final cell_select immediately before
+    // use_item() creates the delayed sapling action.
+    __arpg_movement_remember_sapling_use(_item);
+
+    if (game_paused() || ON_GAMEPAD) {
         return undefined;
     }
 
@@ -199,5 +209,4 @@ function __arpg_movement_aim_sword_combo() {
         case Cardinal.South: _state.push_spd.y = _state.max_push_spd; break;
     }
 }
-
 

@@ -24,9 +24,10 @@ Mouse movement and automatic tool swapping for action-RPG-style play:
   before the action happens. Clicking fishable water equips the fishing rod;
   tiles the game says are waterable, tillable, or hold a bug select the
   watering can, hoe, or net. A click the held item already acts on is left
-  alone, so deliberate selections survive. General action clicks in the mines
-  select a weapon. Press **F6** to toggle this feature; the choice is
-  remembered.
+  alone, so deliberate selections survive. Player-planted saplings and trees
+  also keep the current selection instead of automatically equipping an axe.
+  General action clicks in the mines select a weapon. Press **F6** to toggle
+  this feature; the choice is remembered.
 - **Click where the cursor points** — clicking with a weapon or tool turns the
   player toward the cursor first, and keeps aiming every swing of a repeating
   tool while the button is held. Action clicks stay aimed at the cursor while

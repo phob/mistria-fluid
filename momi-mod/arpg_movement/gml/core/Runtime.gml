@@ -39,6 +39,7 @@ function __arpg_movement_runtime() {
             step_x: 0,
             step_y: 0,
             tool_retarget: undefined,
+            pending_planted_tree: undefined,
         };
     }
     return global.__arpg_movement;

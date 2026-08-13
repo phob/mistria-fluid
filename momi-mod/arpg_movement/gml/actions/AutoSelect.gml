@@ -227,6 +227,108 @@ function __arpg_movement_click_actionable(_node) {
     return false;
 }
 
+// Vanilla tree nodes do not record how they were created. Remember a valid
+// sapling use until its delayed Tool-state callback writes the tree, then put
+// a namespaced scalar on that node. Grid serialization preserves scalar node
+// fields and copies them back on load, so the protection follows the exact
+// tree across saves and disappears naturally if that tree is removed.
+function __arpg_movement_remember_sapling_use(_item) {
+    if (_item == undefined
+        || _item.prototype.use != ItemUse.PlantSapling)
+    {
+        return;
+    }
+
+    var _x = (obj_ari.cell_select.x div 2) * 2;
+    var _y = (obj_ari.cell_select.y div 2) * 2;
+    var _can_plant = can_plant_sapling(GRID, _x, _y, _item.prototype.sapling);
+    if (!_can_plant) return;
+
+    __arpg_movement_runtime().pending_planted_tree = {
+        location_id: CURRENT_LOCATION_ID,
+        object_id: _item.prototype.sapling,
+        x: _x,
+        y: _y,
+        frames_left: 4 * FPS,
+    };
+}
+
+// game.clock_tick runs before object steps. Poll briefly after use_item() so
+// the animation callback can create the node later in the frame, then mark
+// that exact object. Tree corner cells are deliberately empty; +2,+2 is one
+// of the four trunk cells written at every growth stage.
+function __arpg_movement_update_pending_planted_tree(_rt) {
+    var _pending = _rt.pending_planted_tree;
+    if (_pending == undefined) return;
+
+    _pending.frames_left -= 1;
+    if (_pending.frames_left < 0
+        || _pending.location_id != CURRENT_LOCATION_ID)
+    {
+        _rt.pending_planted_tree = undefined;
+        return;
+    }
+
+    var _ni = GRID.try_node_index_for_cell(_pending.x + 2, _pending.y + 2);
+    if (_ni == undefined) return;
+    var _node = GRID.node_parent[_ni];
+    if (_node == undefined) return;
+
+    if (_node.object_id == _pending.object_id
+        && _node.top_left_x == _pending.x
+        && _node.top_left_y == _pending.y)
+    {
+        _node[$ "__arpg_movement_player_planted"] = true;
+        __arpg_movement_log("sapling: protected planted tree obj="
+            + string(_node.object_id)
+            + " tl=" + string(_node.top_left_x) + "," + string(_node.top_left_y));
+    }
+    _rt.pending_planted_tree = undefined;
+}
+
+// Saves made before the marker existed cannot distinguish planted oak/pine
+// from the same species placed by the starting farm or seasonal grow-back.
+// Fruit-bearing sapling species are safe to recognize on farm locations:
+// neither vanilla source creates them there except through sapling use. Keep
+// this fallback narrow by confirming that an actual item prototype plants the
+// clicked tree; wild fruit types without a sapling remain normal axe targets.
+function __arpg_movement_is_sapling_tree_object(_object_id) {
+    static PLANTABLE_TREES = undefined;
+    if (PLANTABLE_TREES == undefined) {
+        PLANTABLE_TREES = array_create(array_length(NODE_PROTOTYPES), false);
+        for (var _i = 0; _i < array_length(ITEM_PROTOTYPES); _i++) {
+            var _prototype = ITEM_PROTOTYPES[_i];
+            if (_prototype == undefined
+                || _prototype.use != ItemUse.PlantSapling
+                || _prototype.sapling == undefined)
+            {
+                continue;
+            }
+            PLANTABLE_TREES[_prototype.sapling] = true;
+        }
+    }
+    var _plantable_count = array_length(PLANTABLE_TREES);
+    return _object_id >= 0
+        && _object_id < _plantable_count
+        && PLANTABLE_TREES[_object_id];
+}
+
+function __arpg_movement_is_protected_planted_tree(_node) {
+    if (_node == undefined) return false;
+    var _category = object_id_to_object_category(_node.object_id);
+    if (_category != ObjectCategory.Tree) return false;
+    if (_node[$ "__arpg_movement_player_planted"] == true) return true;
+
+    var _location = LOCATIONS[GRID.location_id];
+    if (_location == undefined
+        || !_location.farm
+        || _node.prototype.fruit_data == undefined)
+    {
+        return false;
+    }
+    return __arpg_movement_is_sapling_tree_object(_node.object_id);
+}
+
 // The grid footprint decides first: every footprint cell maps to its node
 // (write_object_inst_node writes all write_size cells), so a click on a cell
 // an actionable node occupies IS that node — the player aimed at the tile
@@ -752,6 +854,16 @@ function __arpg_movement_auto_select_action_item(_rt) {
                 _minimum_quality = _node.prototype.minimum_quality;
                 break;
             case ObjectCategory.Tree:
+                if (__arpg_movement_is_protected_planted_tree(_node)) {
+                    if (_pressed) {
+                        __arpg_movement_log("click: player-planted tree, selection kept"
+                            + __arpg_movement_log_ctx());
+                    }
+                    return;
+                }
+                _tool_type = ToolType.Axe;
+                _minimum_quality = _node.prototype.minimum_quality;
+                break;
             case ObjectCategory.Stump:
                 _tool_type = ToolType.Axe;
                 _minimum_quality = _node.prototype.minimum_quality;
@@ -903,4 +1015,3 @@ function __arpg_movement_auto_select_action_item(_rt) {
     __arpg_movement_log("click: no auto target, selection kept"
         + __arpg_movement_log_ctx());
 }
-
