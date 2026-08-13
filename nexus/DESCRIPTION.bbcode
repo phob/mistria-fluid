@@ -14,7 +14,7 @@ Move with intention, interact from a distance, and let the right tool snap into 
 [*][b]CURSOR AIMING[/b] — Swings, casts, and tool reach follow your cursor, swing after swing, even while you are walking.[/*]
 [*][b]SMART INTERACTIONS[/b] — Click a distant NPC, chest, door, or usable object to walk into range and interact.[/*]
 [*][b]MOUSE-DRIVEN MOVEMENT[/b] — Hold right mouse to steer; tap right mouse to path to a destination.[/*]
-[*][b]MOUNTED & SWIMMING CONTROLS[/b] — Keep steering while riding or swimming.[/*]
+[*][b]MOUNTED & SWIMMING CONTROLS[/b] — Keep steering while riding or swimming, and tap a destination to ride there.[/*]
 [*][b]CLICK-AWAY MENUS[/b] — Left- or right-click outside a normal menu to close it; dialogue and confirmation prompts stay protected.[/*]
 [*][b]CLEAR CLICK FEEDBACK[/b] — A normal poof confirms a valid destination; a red poof means it cannot be reached, including spots that would need a walk across open water.[/*]
 [/list]
@@ -25,12 +25,14 @@ Move with intention, interact from a distance, and let the right tool snap into 
 
 [list]
 [*][b]Hold right mouse[/b] — Steer toward the cursor. Move close to walk; move farther away to run. Hold your normal Walk control whenever you want to stay at walking pace.[/*]
-[*][b]Tap right mouse on the ground[/b] — Walk to that spot automatically, navigating around obstacles. Routes never cross open water; a bridge or dry bank is used when one exists.[/*]
+[*][b]Tap right mouse on the ground[/b] — Move to that spot automatically, navigating around obstacles. Mounted routes stay outdoors in the current room, never cross open water, and stop instead of jumping.[/*]
 [*][b]Tap right mouse on a character or object[/b] — Walk into range and interact. Nearby taps still behave like the normal Interact button.[/*]
 [*][b]WASD / jump / tool / E / Esc[/b] — Instantly cancel mouse-driven movement. Keyboard control always wins.[/*]
 [/list]
 
 While right mouse is held, Interact is temporarily suppressed so you can steer past people, chests, and doors without activating them.
+
+Mounted click-to-move keeps the game's normal riding movement, collision, speed, animation, footsteps, perks, and rendering. It cancels on dismount, mount blockers, room changes, movement keys, or actions. If an NPC or animal blocks the route for too long, the mod replans twice and then stops.
 
 [center][img]https://raw.githubusercontent.com/phob/mistria-fluid/main/nexus/assets/floral-vine-separator.png[/img][/center]
 
@@ -86,7 +88,7 @@ Open [b]Journal → Settings → ARPG Movement[/b] to change gameplay options in
 [list]
 [*][b]enabled[/b] — Enable or disable the mod without uninstalling it.[/*]
 [*][b]hold_to_steer[/b] — Toggle steering with a held right mouse button.[/*]
-[*][b]tap_to_pathfind[/b] — Toggle walking to a tapped destination.[/*]
+[*][b]tap_to_pathfind[/b] — Toggle moving to a tapped destination, including while mounted.[/*]
 [*][b]mouse_move_mounted_only[/b] — Limit mouse movement to horseback. On foot, right mouse then behaves exactly like vanilla.[/*]
 [*][b]tap_seconds[/b] and [b]steer_start_seconds[/b] — Adjust tap and steering timing.[/*]
 [*][b]walk_within_px[/b], [b]run_beyond_px[/b], and [b]stop_within_px[/b] — Tune the stop/walk/run distance bands around the cursor.[/*]

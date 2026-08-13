@@ -145,6 +145,45 @@ function __arpg_movement_install_hotkey() {
             args: [],
         });
 
+        mmapi_debug_register_fn("arpg_movement.debug_mounted_path_offset", function(_dx, _dy) {
+            var _has_player = instance_exists(obj_ari);
+            if (!_has_player) return "player missing";
+            var _sid = obj_ari.fsm.current_state_id();
+            if (_sid != PlayerState.MountDefault) return "player is not mounted";
+
+            var _tx = obj_ari.x + _dx;
+            var _ty = obj_ari.y + _dy;
+            var _rt = __arpg_movement_runtime();
+            _rt.running = true;
+            var _ok = __arpg_movement_mounted_path_to(_rt, _tx, _ty);
+            return _ok
+                ? "mounted path started to " + string(_tx) + "," + string(_ty)
+                : "mounted path refused to " + string(_tx) + "," + string(_ty);
+        }, {
+            description: "Start a mounted path to an offset for automated testing",
+            args: [
+                { name: "dx", type: "number" },
+                { name: "dy", type: "number" },
+            ],
+        });
+
+        mmapi_debug_register_fn("arpg_movement.debug_mounted_path_state", function() {
+            var _has_player = instance_exists(obj_ari);
+            if (!_has_player) return "player missing";
+            var _rt = __arpg_movement_runtime();
+            return "state=" + string(obj_ari.fsm.current_state_id())
+                + " pos=" + string(obj_ari.x) + "," + string(obj_ari.y)
+                + " active=" + string(_rt.mounted_path != undefined)
+                + " waypoint=" + string(_rt.mounted_path_index)
+                + " dest=" + string(_rt.mounted_path_dest_x) + ","
+                    + string(_rt.mounted_path_dest_y)
+                + " stall=" + string(_rt.mounted_path_stall_frames)
+                + " replans=" + string(_rt.mounted_path_replans);
+        }, {
+            description: "Read mounted path follower state",
+            args: [],
+        });
+
         mmapi_debug_register_fn("arpg_movement.debug_open_store", function() {
             ANCHOR.spawn_menu(Menu.Store, Store.General);
         }, { description: "Open the general store menu", args: [] });

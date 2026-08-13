@@ -13,21 +13,23 @@ function __arpg_movement_settings_rule_enabled(_rule) {
         case "steering":
             return _cfg.enabled && _cfg.hold_to_steer;
         case "mounted_mode":
-            return _cfg.enabled && _cfg.hold_to_steer;
+            return _cfg.enabled
+                && (_cfg.hold_to_steer || _cfg.tap_to_pathfind);
+        case "tap_path":
+            return _cfg.enabled;
         case "on_foot_taps":
             return _cfg.enabled && !_cfg.mouse_move_mounted_only;
         case "tap_timing":
             return _cfg.enabled
-                && !_cfg.mouse_move_mounted_only
-                && (_cfg.tap_to_pathfind || _cfg.click_to_interact);
+                && (_cfg.tap_to_pathfind
+                    || (!_cfg.mouse_move_mounted_only && _cfg.click_to_interact));
         case "tap_move":
             return _cfg.enabled
-                && !_cfg.mouse_move_mounted_only
                 && _cfg.tap_to_pathfind;
         case "path_feedback":
             return _cfg.enabled
-                && !_cfg.mouse_move_mounted_only
-                && (_cfg.tap_to_pathfind || _cfg.click_to_interact);
+                && (_cfg.tap_to_pathfind
+                    || (!_cfg.mouse_move_mounted_only && _cfg.click_to_interact));
         case "auto_tool":
             return _cfg.enabled && _cfg.auto_select_action_item;
     }
@@ -438,14 +440,14 @@ function arpg_movement_settings_open_page() {
     __arpg_movement_settings_add_checkbox(
         self,
         "mouse_move_mounted_only",
-        "Steer only while mounted",
+        "Move only while mounted",
         "mounted_mode"
     );
     __arpg_movement_settings_add_checkbox(
         self,
         "tap_to_pathfind",
         "Tap right mouse to move",
-        "on_foot_taps"
+        "tap_path"
     );
     __arpg_movement_settings_add_checkbox(
         self,

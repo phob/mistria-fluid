@@ -9,12 +9,16 @@ Mouse movement and automatic tool swapping for action-RPG-style play:
 - **Hold right mouse** — steer toward the cursor. Walks when the cursor is
   close and runs when it is farther away. Holding the normal Walk control
   keeps the player walking.
-- **Tap right mouse** — click-to-move around obstacles. A normal essence poof
-  marks the destination; a red poof means the click cannot be reached.
+- **Tap right mouse** — click-to-move around obstacles on foot or while
+  mounted. Mounted routes stay in the normal riding state, remain in the
+  current outdoor room, avoid water, and stop rather than jumping. A normal
+  essence poof marks the destination; a red poof means the click cannot be
+  reached.
 - **Tap an object or NPC** — walk to it and interact automatically. Nearby
   taps still behave like the normal Interact control.
 - **Ride or swim with the mouse** — hold-to-steer also works while mounted or
-  swimming without replacing their normal actions.
+  swimming without replacing their normal actions. Mounted click-to-move
+  cancels on a dismount, action, room change, blocker, or movement key.
 - **Auto Tool Swapping** — left-click a nearby rock, tree, stump, or dig spot
   and the correct usable tool is selected from anywhere in the inventory
   before the action happens. Clicking fishable water equips the fishing rod;

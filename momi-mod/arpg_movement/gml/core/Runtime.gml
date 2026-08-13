@@ -17,6 +17,13 @@ function __arpg_movement_runtime() {
             hold_frames: 0,
             running: true,
             pathfinding: false,
+            mounted_path: undefined,
+            mounted_path_index: -1,
+            mounted_path_dest_x: undefined,
+            mounted_path_dest_y: undefined,
+            mounted_path_stall_frames: 0,
+            mounted_path_replans: 0,
+            mounted_path_injected: false,
             interact_target: undefined,
             interact_target_x: undefined,
             interact_target_y: undefined,
@@ -26,6 +33,7 @@ function __arpg_movement_runtime() {
             click_scan_list: undefined,
             player_id: undefined,
             location_id: undefined,
+            room_id: undefined,
             last_x: undefined,
             last_y: undefined,
             step_x: 0,
@@ -66,11 +74,10 @@ function __arpg_movement_normalize_config(_cfg) {
     _cfg.walk_within_px = max(_cfg.walk_within_px, _cfg.stop_within_px);
     _cfg.run_beyond_px = max(_cfg.run_beyond_px, _cfg.walk_within_px);
 
-    // Mounted-only taps intentionally fall through to vanilla interaction;
-    // steering is the only mouse-movement feature that can run while mounted.
-    // Without steering this flag would merely and invisibly disable both
-    // on-foot tap features, so collapse that nonsensical combination.
-    if (!_cfg.hold_to_steer) {
+    // Mounted-only mode is meaningful while either mounted gesture is on.
+    // With both movement gestures disabled it would merely and invisibly
+    // disable on-foot smart interaction, so collapse that combination.
+    if (!_cfg.hold_to_steer && !_cfg.tap_to_pathfind) {
         _cfg.mouse_move_mounted_only = false;
     }
 }
@@ -161,16 +168,31 @@ function __arpg_movement_clear_interact(_rt) {
     _rt.interact_repath_frames = 0;
 }
 
+function __arpg_movement_clear_mounted_path(_rt) {
+    _rt.mounted_path = undefined;
+    _rt.mounted_path_index = -1;
+    _rt.mounted_path_dest_x = undefined;
+    _rt.mounted_path_dest_y = undefined;
+    _rt.mounted_path_stall_frames = 0;
+    _rt.mounted_path_replans = 0;
+    _rt.mounted_path_injected = false;
+}
+
 // Room changes, reloads, and save swaps can all replace Ari without destroying
 // this global. Never carry a path, a gesture, or a displacement sample across
 // that boundary.
 function __arpg_movement_sync_context(_rt) {
-    if (_rt.player_id == obj_ari.id && _rt.location_id == CURRENT_LOCATION_ID) {
+    var _room_id = room();
+    if (_rt.player_id == obj_ari.id
+        && _rt.location_id == CURRENT_LOCATION_ID
+        && _rt.room_id == _room_id)
+    {
         return;
     }
 
     _rt.player_id = obj_ari.id;
     _rt.location_id = CURRENT_LOCATION_ID;
+    _rt.room_id = _room_id;
     _rt.pathfinding = false;
     _rt.running = true;
     _rt.last_x = undefined;
@@ -179,6 +201,7 @@ function __arpg_movement_sync_context(_rt) {
     _rt.step_y = 0;
     __arpg_movement_reset(_rt);
     __arpg_movement_clear_interact(_rt);
+    __arpg_movement_clear_mounted_path(_rt);
 }
 
 // Ends a mouse-driven Pathfind walk and hands control back to the player.

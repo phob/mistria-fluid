@@ -1,5 +1,9 @@
 // ARPG Movement: pathfinding, steering, and the frame heartbeat
 
+#macro ARPG_MOVEMENT_MOUNT_STALL_SECONDS 0.5
+#macro ARPG_MOVEMENT_MOUNT_MAX_REPLANS 2
+#macro ARPG_MOVEMENT_MOUNT_MIN_STEP_PX 0.05
+
 // Any discrete player command that needs direct control of Ari cancels the
 // mod-owned Pathfind state before vanilla processes the same input. Walk is the
 // sole exception: it is a speed modifier, not an action or destination change.
@@ -182,6 +186,124 @@ function __arpg_movement_path_to(_x, _y, _path_data=undefined) {
     return true;
 }
 
+// Builds a local route for the mounted follower without changing Ari's FSM.
+// Hyperpath supplies only the waypoints; MountDefault remains responsible for
+// movement, collision, speed, animation, footsteps, perks, and rendering.
+function __arpg_movement_mounted_path_to(_rt, _x, _y, _preserve_replans=false) {
+    if (!LOCATIONS[CURRENT_LOCATION_ID].outdoor) return false;
+
+    var _start_node = GRID.try_node_index_for_room_position(obj_ari.x, obj_ari.y);
+    var _dest_node = GRID.try_node_index_for_room_position(_x, _y);
+    if (_start_node == undefined || _dest_node == undefined) return false;
+
+    var _path_data = PATHFINDING.calculate_local_path(
+        obj_ari.x,
+        obj_ari.y,
+        _x,
+        _y,
+        true
+    );
+    if (_path_data == undefined) return false;
+    if (__arpg_movement_path_crosses_water(_path_data)) return false;
+
+    var _path = _path_data.output_list;
+    if (_path == undefined) return false;
+    var _path_count = _path.count();
+    if (_path_count == 0) return false;
+
+    var _replans = _preserve_replans ? _rt.mounted_path_replans : 0;
+    _rt.mounted_path = _path;
+    _rt.mounted_path_index = _path_count - 1;
+    _rt.mounted_path_dest_x = _x;
+    _rt.mounted_path_dest_y = _y;
+    _rt.mounted_path_stall_frames = 0;
+    _rt.mounted_path_replans = _replans;
+    _rt.mounted_path_injected = false;
+    return true;
+}
+
+// Feeds MountDefault a virtual stick aimed at the next Hyperpath waypoint.
+// Dynamic actors are not part of Hyperpath's local grid, so a fully blocked
+// follower replans twice and then yields instead of pushing forever.
+function __arpg_movement_update_mounted_path(_rt) {
+    if (_rt.mounted_path == undefined) return false;
+
+    if (_rt.mounted_path_injected) {
+        var _step_dist = point_distance(0, 0, _rt.step_x, _rt.step_y);
+        if (_step_dist < ARPG_MOVEMENT_MOUNT_MIN_STEP_PX) {
+            _rt.mounted_path_stall_frames += 1;
+        } else {
+            _rt.mounted_path_stall_frames = 0;
+        }
+    }
+    _rt.mounted_path_injected = false;
+
+    if (_rt.mounted_path_stall_frames
+        >= max(1, ARPG_MOVEMENT_MOUNT_STALL_SECONDS * FPS))
+    {
+        var _dest_x = _rt.mounted_path_dest_x;
+        var _dest_y = _rt.mounted_path_dest_y;
+        var _attempt = _rt.mounted_path_replans + 1;
+        if (_attempt <= ARPG_MOVEMENT_MOUNT_MAX_REPLANS) {
+            _rt.mounted_path_replans = _attempt;
+            if (__arpg_movement_mounted_path_to(
+                _rt,
+                _dest_x,
+                _dest_y,
+                true
+            )) {
+                __arpg_movement_log("mounted path: replanned after stall attempt="
+                    + string(_attempt) + __arpg_movement_log_ctx());
+            } else {
+                __arpg_movement_log("mounted path: replan failed"
+                    + __arpg_movement_log_ctx());
+                __arpg_movement_clear_mounted_path(_rt);
+                return false;
+            }
+        } else {
+            __arpg_movement_log("mounted path: stopped after repeated stalls"
+                + __arpg_movement_log_ctx());
+            __arpg_movement_clear_mounted_path(_rt);
+            return false;
+        }
+    }
+
+    // MountDefault applies a full movement speed to any non-zero direction,
+    // so accept a waypoint when the next vanilla step could reach or pass it.
+    var _walk_held = INPUT.check(InputId.Walk);
+    var _walking = !_rt.running || _walk_held;
+    var _old_toggle = ARI.run_toggle;
+    ARI.run_toggle = !_walking;
+    var _spd = ARI.get_move_speed(true);
+    ARI.run_toggle = _old_toggle;
+    var _reach = max(2, _spd + 0.5);
+
+    var _point = undefined;
+    var _dist = 0;
+    while (_rt.mounted_path_index >= 0) {
+        _point = _rt.mounted_path.get(_rt.mounted_path_index);
+        _dist = point_distance(obj_ari.x, obj_ari.y, _point.x, _point.y);
+        if (_dist > _reach) break;
+        _rt.mounted_path_index -= 1;
+    }
+
+    if (_rt.mounted_path_index < 0) {
+        __arpg_movement_log("mounted path: destination reached"
+            + __arpg_movement_log_ctx());
+        __arpg_movement_clear_mounted_path(_rt);
+        return false;
+    }
+
+    INPUT.gp_left_stick.x = (_point.x - obj_ari.x) / _dist;
+    INPUT.gp_left_stick.y = (_point.y - obj_ari.y) / _dist;
+    INPUT.gp_left_mag = 1;
+    if (_walking) {
+        __arpg_movement_hold_walk_binding();
+    }
+    _rt.mounted_path_injected = true;
+    return true;
+}
+
 function __arpg_movement_remember_interact_plan(_rt, _target, _plan) {
     var _bounds = __arpg_movement_interact_bounds(_target);
     if (_bounds == undefined) return;
@@ -322,6 +444,7 @@ function arpg_movement_clock_tick(_ctx) {
             _rt.pathfinding = false;
             __arpg_movement_clear_interact(_rt);
         }
+        __arpg_movement_clear_mounted_path(_rt);
         __arpg_movement_reset(_rt);
         return;
     }
@@ -339,6 +462,7 @@ function arpg_movement_clock_tick(_ctx) {
         {
             __arpg_movement_stop_walk(_rt);
         }
+        __arpg_movement_clear_mounted_path(_rt);
         __arpg_movement_reset(_rt);
         return;
     }
@@ -349,6 +473,7 @@ function arpg_movement_clock_tick(_ctx) {
         {
             __arpg_movement_stop_walk(_rt);
         }
+        __arpg_movement_clear_mounted_path(_rt);
         __arpg_movement_reset(_rt);
         return;
     }
@@ -446,6 +571,13 @@ function arpg_movement_clock_tick(_ctx) {
     var _in_swim = _sid == PlayerState.Swim;
     var _in_mount = _sid == PlayerState.MountDefault;
     var _in_our_path = _sid == PlayerState.Pathfind && _rt.pathfinding;
+    var _in_our_mounted_path = _in_mount && _rt.mounted_path != undefined;
+
+    if (!_in_mount && _rt.mounted_path != undefined) {
+        __arpg_movement_log("mounted path: cancelled by dismount or state change"
+            + __arpg_movement_log_ctx());
+        __arpg_movement_clear_mounted_path(_rt);
+    }
 
     if (_in_our_path
         && _rt.interact_target != undefined
@@ -464,15 +596,16 @@ function arpg_movement_clock_tick(_ctx) {
     var _right_down = mouse_check_button(mb_right);
     var _right_pressed = mouse_check_button_pressed(mb_right);
 
-    // Which right-mouse features may act from the current state. Steering is
-    // its own toggle; taps matter on foot when either tap feature is on
-    // (mounted taps only ever return the press to vanilla). With neither
+    // Which right-mouse features may act from the current state. Mounted taps
+    // claim only click-to-move; nearby taps still return the press to vanilla.
+    // On foot, smart interaction can claim taps too. With neither gesture
     // allowed, the press is never muted and right mouse is exactly vanilla.
     var _steer_allowed = _cfg.hold_to_steer
         && (!_cfg.mouse_move_mounted_only || _in_mount);
-    var _tap_allowed = !_in_mount
-        && !_cfg.mouse_move_mounted_only
-        && (_cfg.tap_to_pathfind || _cfg.click_to_interact);
+    var _tap_allowed = _in_mount
+        ? _cfg.tap_to_pathfind
+        : (!_cfg.mouse_move_mounted_only
+            && (_cfg.tap_to_pathfind || _cfg.click_to_interact));
 
     // Mute the physical press before checking cancellation bindings below.
     // Interact is bound to right mouse by default; if an active tap-walk saw
@@ -505,7 +638,23 @@ function arpg_movement_clock_tick(_ctx) {
 
     // No mouse gesture or mod-owned path is active. Avoid resolving input
     // bindings every frame while the mod is idle.
-    if (!_in_our_path && _rt.hold_frames == 0 && !_right_down) {
+    if (!_in_our_path
+        && !_in_our_mounted_path
+        && _rt.hold_frames == 0
+        && !_right_down)
+    {
+        return;
+    }
+
+    var _on_mount_blocker = false;
+    if (_in_our_mounted_path) {
+        _on_mount_blocker = obj_ari.overlaps_mount_blocker();
+    }
+    if (_on_mount_blocker) {
+        __arpg_movement_log("mounted path: cancelled by mount blocker"
+            + __arpg_movement_log_ctx());
+        __arpg_movement_clear_mounted_path(_rt);
+        __arpg_movement_reset(_rt);
         return;
     }
 
@@ -519,18 +668,30 @@ function arpg_movement_clock_tick(_ctx) {
             __arpg_movement_stop_walk(_rt);
             __arpg_movement_log("path: cancelled by movement keys");
         }
+        if (_in_our_mounted_path) {
+            __arpg_movement_clear_mounted_path(_rt);
+            __arpg_movement_log("mounted path: cancelled by movement keys");
+        }
         __arpg_movement_reset(_rt);
         return;
     }
 
     // Every discrete action, menu command, and toolbar change hands control
     // back to vanilla in the same frame.
-    if (_in_our_path && __arpg_movement_path_cancel_requested())
-    {
-        __arpg_movement_stop_walk(_rt);
-        __arpg_movement_log("path: cancelled by player command");
-        __arpg_movement_reset(_rt);
-        return;
+    if (_in_our_path || _in_our_mounted_path) {
+        var _cancel_path = __arpg_movement_path_cancel_requested();
+        if (_cancel_path) {
+            if (_in_our_path) {
+                __arpg_movement_stop_walk(_rt);
+                __arpg_movement_log("path: cancelled by player command");
+            }
+            if (_in_our_mounted_path) {
+                __arpg_movement_clear_mounted_path(_rt);
+                __arpg_movement_log("mounted path: cancelled by player command");
+            }
+            __arpg_movement_reset(_rt);
+            return;
+        }
     }
 
     // No feature may claim the button here (all gestures configured off, or
@@ -538,12 +699,16 @@ function arpg_movement_clock_tick(_ctx) {
     // vanilla already handles it; a leftover mod path still finishes or gets
     // cancelled through the checks above.
     if (!_steer_allowed && !_tap_allowed) {
+        if (_in_our_mounted_path) {
+            __arpg_movement_clear_mounted_path(_rt);
+        }
         __arpg_movement_reset(_rt);
         return;
     }
 
     if (_right_down) {
         _rt.hold_frames += 1;
+        var _steered_this_frame = false;
 
         if (_right_pressed) {
             // Initial pace from where the cursor starts.
@@ -553,6 +718,7 @@ function arpg_movement_clock_tick(_ctx) {
 
         // Held past the threshold: steer toward the cursor.
         if (_steer_allowed && _rt.hold_frames > _cfg.steer_start_seconds * FPS) {
+            _steered_this_frame = true;
             var _mx = mouse_x();
             var _my = mouse_y();
             var _dist = point_distance(obj_ari.x, obj_ari.y, _mx, _my);
@@ -573,6 +739,10 @@ function arpg_movement_clock_tick(_ctx) {
             if (_in_our_path) {
                 __arpg_movement_stop_walk(_rt);
             }
+            if (_in_our_mounted_path) {
+                __arpg_movement_clear_mounted_path(_rt);
+                _in_our_mounted_path = false;
+            }
 
             // Swim and MountDefault read movement through the same binding
             // path and pick their own speed and animation.
@@ -589,6 +759,9 @@ function arpg_movement_clock_tick(_ctx) {
                 }
             }
         }
+        if (_in_our_mounted_path && !_steered_this_frame) {
+            __arpg_movement_update_mounted_path(_rt);
+        }
     } else {
         if (mouse_check_button_released(mb_right) && _rt.hold_frames > 0) {
             if (_rt.hold_frames <= _cfg.tap_seconds * FPS) {
@@ -598,14 +771,45 @@ function arpg_movement_clock_tick(_ctx) {
                 var _tx = mouse_x();
                 var _ty = mouse_y();
                 if (_in_mount) {
-                    // Mounted taps never enter the on-foot Pathfind state.
-                    // Return the muted press so mounted interaction remains
-                    // exactly vanilla regardless of cursor distance.
-                    var _mount_idx = array_index(MOUSE_BUTTONS, mb_right);
-                    INPUT.raw_mouse[_mount_idx] = set_flag(INPUT.raw_mouse[_mount_idx], DigitalStatus.Pressed);
-                    INPUT.raw_mouse[_mount_idx] = remove_flag(INPUT.raw_mouse[_mount_idx], DigitalStatus.Muted);
-                    __arpg_movement_log("tap: mounted, press handed back"
-                        + __arpg_movement_log_ctx());
+                    _rt.running = !INPUT.check(InputId.Walk);
+                    var _mounted_tap_dist = point_distance(
+                        obj_ari.x,
+                        obj_ari.y,
+                        _tx,
+                        _ty
+                    );
+                    if (_cfg.tap_to_pathfind
+                        && _mounted_tap_dist > _cfg.interact_radius_px)
+                    {
+                        if (__arpg_movement_mounted_path_to(_rt, _tx, _ty)) {
+                            _in_our_mounted_path = true;
+                            __arpg_movement_log("tap: mounted path to "
+                                + string(_tx) + "," + string(_ty)
+                                + " run=" + string(_rt.running)
+                                + __arpg_movement_log_ctx());
+                            if (_cfg.click_marker) {
+                                __arpg_movement_show_marker(_tx, _ty, true);
+                            }
+                        } else {
+                            __arpg_movement_clear_mounted_path(_rt);
+                            _in_our_mounted_path = false;
+                            __arpg_movement_log("tap: mounted path refused "
+                                + "(indoor, water, or unreachable)"
+                                + __arpg_movement_log_ctx());
+                            if (_cfg.invalid_click_marker) {
+                                __arpg_movement_show_marker(_tx, _ty, false);
+                            }
+                        }
+                    } else {
+                        // Close-range mounted taps remain vanilla interaction.
+                        __arpg_movement_clear_mounted_path(_rt);
+                        _in_our_mounted_path = false;
+                        var _mount_idx = array_index(MOUSE_BUTTONS, mb_right);
+                        INPUT.raw_mouse[_mount_idx] = set_flag(INPUT.raw_mouse[_mount_idx], DigitalStatus.Pressed);
+                        INPUT.raw_mouse[_mount_idx] = remove_flag(INPUT.raw_mouse[_mount_idx], DigitalStatus.Muted);
+                        __arpg_movement_log("tap: mounted, press handed back"
+                            + __arpg_movement_log_ctx());
+                    }
                 } else {
                     _rt.running = !INPUT.check(InputId.Walk);
 
@@ -698,5 +902,8 @@ function arpg_movement_clock_tick(_ctx) {
             // stick stops being injected, the player stops.
         }
         __arpg_movement_reset(_rt);
+        if (_in_our_mounted_path) {
+            __arpg_movement_update_mounted_path(_rt);
+        }
     }
 }
