@@ -1,6 +1,6 @@
-# ARPG Movement 2.3.1 (for Fields of Mistria 1.0)
+# ARPG Movement 2.3.2 (for Fields of Mistria 1.0)
 
-ARPG Movement 2.3.1 is ready for Fields of Mistria 1.0 and requires MOMI
+ARPG Movement 2.3.2 is ready for Fields of Mistria 1.0 and requires MOMI
 0.15.2 or newer. Older installers either lack Fields of Mistria 1.0 support or
 the MMAPI hotkey function used by Auto Tool Swapping.
 
@@ -65,6 +65,6 @@ cd "/d/SteamLibrary/steamapps/common/Fields of Mistria" && \
 
 ## Publishing
 
-- `dist/ARPGMovement-2.3.1.zip` — Nexus-ready package.
+- `dist/ARPGMovement-2.3.2.zip` — Nexus-ready package.
 - `nexus/DESCRIPTION.bbcode` — mod page description (BBCode).
 - `nexus/UPLOAD_CHECKLIST.md` — upload steps.
