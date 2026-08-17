@@ -1,7 +1,7 @@
 # Nexus 2.3.2 update checklist
 
 1. The manifest is final: author `phobi666`, version `2.3.2`,
-   `minInstallerVersion` `0.15.2`. Don't change `author` or `name` after
+   `minInstallerVersion` `0.15.5`. Don't change `author` or `name` after
    release: MOMI derives the mod's unique ID from them.
 
 2. Open the existing ARPG Movement Nexus page and choose to add a new file.
@@ -14,14 +14,14 @@
      tools and weapons at your cursor, and automatically equip the right tool
      for rocks, wild trees, stumps, dig spots, watering, tilling, bugs,
      breakables, and fishable water while protecting player-planted trees from
-     automatic axe swaps. Configure gameplay options in game. WASD always
-     stays in control. Ready for Fields of Mistria 1.0; requires MOMI 0.15.2
-     or newer.
+     automatic axe swaps. Controller tool actions also swap based on the tile
+     the player faces. Configure gameplay options in game. WASD always stays
+     in control. Ready for Fields of Mistria 1.0.3; requires MOMI 0.15.5 or newer.
    - **Description:** paste `DESCRIPTION.bbcode` (Nexus descriptions use
      BBCode; use the "BBCode" editor mode).
 
 4. Requirements section: add "Mods of Mistria Installer" (MOMI) as a
-   requirement. In the requirement's notes field write: "Requires MOMI 0.15.2
+   requirement. In the requirement's notes field write: "Requires MOMI 0.15.5
    or newer."
 
 5. Files tab: upload `dist/ARPGMovement-2.3.2.zip`, version `2.3.2`.
@@ -29,6 +29,7 @@
 6. Changelog (paste as plain text, one entry per line):
 
    ```text
+   Added Auto Tool Swapping for controller tool actions
    Protect player-planted saplings and trees from automatic axe swapping
    ```
 

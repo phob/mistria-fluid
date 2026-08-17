@@ -1,8 +1,8 @@
 # ARPG Movement 2.3.2 (for Fields of Mistria 1.0)
 
-ARPG Movement 2.3.2 is ready for Fields of Mistria 1.0 and requires MOMI
-0.15.2 or newer. Older installers either lack Fields of Mistria 1.0 support or
-the MMAPI hotkey function used by Auto Tool Swapping.
+ARPG Movement 2.3.2 is ready for Fields of Mistria 1.0.3 and requires MOMI
+0.15.5 or newer. Older installers lack the current game seam fixes; versions
+before 0.15.2 also lack the MMAPI hotkey function used by Auto Tool Swapping.
 
 Mouse movement and automatic tool swapping for action-RPG-style play:
 
@@ -19,15 +19,16 @@ Mouse movement and automatic tool swapping for action-RPG-style play:
 - **Ride or swim with the mouse** — hold-to-steer also works while mounted or
   swimming without replacing their normal actions. Mounted click-to-move
   cancels on a dismount, action, room change, blocker, or movement key.
-- **Auto Tool Swapping** — left-click a nearby rock, tree, stump, or dig spot
-  and the correct usable tool is selected from anywhere in the inventory
-  before the action happens. Clicking fishable water equips the fishing rod;
-  tiles the game says are waterable, tillable, or hold a bug select the
-  watering can, hoe, or net. A click the held item already acts on is left
-  alone, so deliberate selections survive. Player-planted saplings and trees
-  also keep the current selection instead of automatically equipping an axe.
-  General action clicks in the mines select a weapon. Press **F6** to toggle
-  this feature; the choice is remembered.
+- **Auto Tool Swapping** — left-click a nearby rock, tree, stump, or dig spot,
+  or face it on a controller and press the normal tool-action button. The
+  correct usable tool is selected from anywhere in the inventory before the
+  action happens. Fishable water equips the fishing rod; tiles the game says
+  are waterable, tillable, or hold a bug select the watering can, hoe, or net.
+  An item already able to act on the target is left alone, so deliberate
+  selections survive. Player-planted saplings and trees also keep the current
+  selection instead of automatically equipping an axe. Mine actions select a
+  weapon when a monster is close. Press **F6** to toggle this feature; the
+  choice is remembered.
 - **Click where the cursor points** — clicking with a weapon or tool turns the
   player toward the cursor first, and keeps aiming every swing of a repeating
   tool while the button is held. Action clicks stay aimed at the cursor while
@@ -38,11 +39,11 @@ Mouse movement and automatic tool swapping for action-RPG-style play:
   one layer first, then closes from the category screen. Dialogue and
   confirmation prompts are protected from accidental closing.
 - **WASD / jump / tool / E / Esc** — cancels any mouse-driven walk immediately.
-  Keyboard control always wins, while gamepad play and cutscenes remain
-  untouched.
+  Keyboard control always wins. Gamepad movement remains vanilla while Auto
+  Tool Swapping also works with the normal controller tool-action button.
 
 Built as a [MOMI](https://github.com/Garethp/Mods-of-Mistria-Installer)
-(0.15.2+) MMAPI mod. For Fields of Mistria 1.0, use MOMI 0.15.2 or newer. The
+(0.15.5+) MMAPI mod. For Fields of Mistria 1.0.3, use MOMI 0.15.5 or newer. The
 GML source is split by domain under `momi-mod/arpg_movement/gml/`;
 `ArpgMovement.gml` is the single boot/registration file.
 

@@ -468,7 +468,15 @@ function arpg_movement_clock_tick(_ctx) {
         return;
     }
 
+    var _sid = obj_ari.fsm.current_state_id();
+
     if (ON_GAMEPAD) {
+        // Mouse movement remains completely dormant on controller, but Auto
+        // Tool Swapping is input-agnostic: run its facing-based path before
+        // handing the rest of the frame back to vanilla gamepad behavior.
+        if (_sid == PlayerState.Default && _cfg.auto_select_action_item) {
+            __arpg_movement_auto_select_controller_action_item(_rt);
+        }
         if (obj_ari.fsm.current_state_id() == PlayerState.Pathfind
             && _rt.pathfinding)
         {
@@ -478,8 +486,6 @@ function arpg_movement_clock_tick(_ctx) {
         __arpg_movement_reset(_rt);
         return;
     }
-
-    var _sid = obj_ari.fsm.current_state_id();
 
     // A swing armed by the use guard last frame reads its target cell on a
     // later animation frame; deliver the corrected aim before the strike

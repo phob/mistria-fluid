@@ -96,7 +96,8 @@ function __arpg_movement_predicted_pose(_rt, _cfg) {
     // later in this heartbeat is the movement intent vanilla will actually use.
     // This prediction is only read from PlayerState.Default, where steering
     // exists solely when it is enabled and not restricted to riding.
-    if (_cfg.hold_to_steer
+    if (!ON_GAMEPAD
+        && _cfg.hold_to_steer
         && !_cfg.mouse_move_mounted_only
         && mouse_check_button(mb_right)
         && _rt.hold_frames + 1 > _cfg.steer_start_seconds * FPS)
@@ -509,6 +510,101 @@ function __arpg_movement_selection_candidates(_x, _y, _cardinal) {
     return _out;
 }
 
+// Mirrors the ordered, facing-based queue in obj_ari.update_cell_select().
+// Controller actions do not aim at the cursor: vanilla tries the tile in
+// front, the player's tile, then the conditional outer/diagonal tiles. Hoe,
+// watering-can, and shovel targeting deliberately stops after the first two.
+function __arpg_movement_facing_selections(_pose, _go_long=true) {
+    var _tile_x = _pose.x div 16;
+    var _tile_y = _pose.y div 16;
+    var _base_x = _pose.x % 16;
+    var _base_y = _pose.y % 16;
+    var _forward_x = 0;
+    var _forward_y = 0;
+    var _side_x = 0;
+    var _side_y = 0;
+    var _far_allowed = false;
+
+    switch (_pose.cardinal) {
+        case Cardinal.East:
+            _forward_x = 1;
+            _side_y = _base_y < 8 ? -1 : 1;
+            _far_allowed = _base_x >= 8;
+            break;
+        case Cardinal.West:
+            _forward_x = -1;
+            // Preserve vanilla's west-facing queue exactly: both vertical
+            // halves use the tile above Ari in the current game build.
+            _side_y = -1;
+            _far_allowed = _base_x < 8;
+            break;
+        case Cardinal.South:
+            _forward_y = 1;
+            _side_x = _base_x < 8 ? -1 : 1;
+            _far_allowed = _base_y >= 8;
+            break;
+        case Cardinal.North:
+            _forward_y = -1;
+            _side_x = _base_x < 8 ? -1 : 1;
+            _far_allowed = _base_y < 8;
+            break;
+    }
+
+    var _out = [
+        {
+            x: (_tile_x + _forward_x) * 2,
+            y: (_tile_y + _forward_y) * 2,
+        },
+        { x: _tile_x * 2, y: _tile_y * 2 },
+    ];
+    if (!_go_long) return _out;
+
+    if (_far_allowed) {
+        array_push(_out, {
+            x: (_tile_x + _forward_x * 2) * 2,
+            y: (_tile_y + _forward_y * 2) * 2,
+        });
+    }
+    array_push(_out, {
+        x: (_tile_x + _forward_x + _side_x) * 2,
+        y: (_tile_y + _forward_y + _side_y) * 2,
+    });
+    if (_far_allowed) {
+        array_push(_out, {
+            x: (_tile_x + _forward_x * 2 + _side_x) * 2,
+            y: (_tile_y + _forward_y * 2 + _side_y) * 2,
+        });
+    }
+    return _out;
+}
+
+// The selection vanilla will settle on for the item currently in hand while
+// using facing-based controls. Keeping a deliberately selected usable item is
+// especially important on controller, where there is no exact pointer target
+// to overrule the player's choice.
+function __arpg_movement_facing_selection_for_item(_pose, _item) {
+    var _prototype = _item.prototype;
+    var _go_long = true;
+    if (_prototype.use == ItemUse.UseTool
+        && matches(
+            _prototype.tool_type,
+            ToolType.Hoe,
+            ToolType.WateringCan,
+            ToolType.Shovel
+        ))
+    {
+        _go_long = false;
+    }
+
+    var _selections = __arpg_movement_facing_selections(_pose, _go_long);
+    for (var _i = 0; _i < array_length(_selections); _i++) {
+        if (__arpg_movement_item_affects_cells(_item, _selections[_i])) {
+            return _selections[_i];
+        }
+    }
+    return _selections[0];
+}
+
 // Breakables (mine barrels, crates, debris piles, coral, farm branches) are
 // smashed by the sword's slash, not by any cell-selected tool, and the game's
 // item_effects_node_at_cell() has no ItemUse.Attack case to ask. Swing range
@@ -740,11 +836,11 @@ function __arpg_movement_is_deliberate_placement(_use) {
     return false;
 }
 
-// True when a live monster stands within _player_range_px of the player, or
-// within three fields of the cursor — clicking at a monster is combat intent
-// no matter how far away it stands. par_monster covers every real monster;
+// True when a live monster stands within _player_range_px of the player. Mouse
+// actions also count one under the cursor; controller actions deliberately do
+// not consult the parked pointer. par_monster covers every real monster;
 // projectiles and effect objects are separate object trees and never match.
-function __arpg_movement_monster_near(_player_range_px) {
+function __arpg_movement_monster_near(_player_range_px, _include_cursor=true) {
     var _mx = mouse_x();
     var _my = mouse_y();
     var _count = instance_number(par_monster);
@@ -753,12 +849,349 @@ function __arpg_movement_monster_near(_player_range_px) {
         // A monster playing its death animation is no reason to draw steel.
         if (_monster.hit_points <= 0) continue;
         if (point_distance(obj_ari.x, obj_ari.y, _monster.x, _monster.y) <= _player_range_px
-            || point_distance(_mx, _my, _monster.x, _monster.y) <= 24)
+            || (_include_cursor
+                && point_distance(_mx, _my, _monster.x, _monster.y) <= 24))
         {
             return true;
         }
     }
     return false;
+}
+
+function __arpg_movement_controller_node_in_selection(_selection) {
+    for (var _xx = 0; _xx < 2; _xx++) {
+        for (var _yy = 0; _yy < 2; _yy++) {
+            var _ni = GRID.try_node_index_for_cell(
+                _selection.x + _xx,
+                _selection.y + _yy
+            );
+            if (_ni == undefined) continue;
+            var _node = GRID.node_parent[_ni];
+            if (__arpg_movement_click_actionable(_node)) {
+                return _node;
+            }
+        }
+    }
+    return undefined;
+}
+
+// A controller cast begins two 8px cells in front of Ari, then charging adds
+// up to the held rod's range. Vanilla checks only the final landing cell, so
+// scan that same facing ray without requiring the intermediate bridge, bank,
+// or cliff cells to be water. Return the first legal charged landing.
+function __arpg_movement_controller_fishable_landing(_pose, _rod_range) {
+    var _origin_x = _pose.x div 8;
+    var _origin_y = _pose.y div 8;
+    var _step_x = 0;
+    var _step_y = 0;
+    switch (_pose.cardinal) {
+        case Cardinal.East:  _step_x = 1; break;
+        case Cardinal.West:  _step_x = -1; break;
+        case Cardinal.South: _step_y = 1; break;
+        case Cardinal.North: _step_y = -1; break;
+    }
+
+    var _maximum_distance = 2 + max(0, floor(_rod_range));
+    for (var _distance = 2; _distance <= _maximum_distance; _distance++) {
+        var _cell_x = _origin_x + _step_x * _distance;
+        var _cell_y = _origin_y + _step_y * _distance;
+        var _ni = GRID.try_node_index_for_cell(_cell_x, _cell_y);
+        if (_ni != undefined
+            && GRID.node_terrain_kind[_ni] == TerrainKind.Water
+            && !GRID.node_collideable[_ni])
+        {
+            return { x: _cell_x, y: _cell_y, distance: _distance };
+        }
+    }
+    return undefined;
+}
+
+function __arpg_movement_find_net_for_bug(_selection) {
+    var _index = __arpg_movement_find_item(ItemUse.UseTool, ToolType.Net);
+    if (_index == undefined
+        || !__arpg_movement_bug_in_cell(_selection.x, _selection.y))
+    {
+        return undefined;
+    }
+
+    var _item = ARI.inventory.slot(_index).item;
+    return __arpg_movement_item_affects_cells(_item, _selection)
+        ? _index : undefined;
+}
+
+// Handles a recognized facing target and returns true even when selection is
+// intentionally kept (protected tree, missing tool, or held-repeat reach).
+// That prevents an explicit object from falling through to an unrelated tile
+// tool in the same area.
+function __arpg_movement_controller_select_node(
+    _node,
+    _pose,
+    _selection,
+    _pressed
+) {
+    var _category = object_id_to_object_category(_node.object_id);
+    var _tool_type = undefined;
+    var _minimum_quality = undefined;
+
+    switch (_category) {
+        case ObjectCategory.Rock:
+            _tool_type = ToolType.PickAxe;
+            _minimum_quality = _node.prototype.minimum_quality;
+            break;
+        case ObjectCategory.Tree:
+            if (__arpg_movement_is_protected_planted_tree(_node)) {
+                if (_pressed) {
+                    __arpg_movement_log(
+                        "controller: player-planted tree, selection kept"
+                        + __arpg_movement_log_ctx()
+                    );
+                }
+                return true;
+            }
+            _tool_type = ToolType.Axe;
+            _minimum_quality = _node.prototype.minimum_quality;
+            break;
+        case ObjectCategory.Stump:
+            _tool_type = ToolType.Axe;
+            _minimum_quality = _node.prototype.minimum_quality;
+            break;
+        case ObjectCategory.DigSite:
+            var _shovel_index = __arpg_movement_find_item(
+                ItemUse.UseTool,
+                ToolType.Shovel
+            );
+            _tool_type = _shovel_index == undefined
+                ? ToolType.PickAxe : ToolType.Shovel;
+            break;
+        case ObjectCategory.Breakable:
+            var _weapon_index = __arpg_movement_find_item(ItemUse.Attack);
+            if (_weapon_index == undefined
+                || !__arpg_movement_node_in_swing_range(
+                    _pose.x,
+                    _pose.y,
+                    _pose.cardinal,
+                    _node
+                ))
+            {
+                if (_pressed) {
+                    __arpg_movement_log(
+                        "controller: breakable, no weapon or out of swing range"
+                        + __arpg_movement_log_ctx()
+                    );
+                }
+                return true;
+            }
+            var _previous_weapon_slot = ARI.held_item_index;
+            __arpg_movement_select_item(_weapon_index);
+            if (_pressed || ARI.held_item_index != _previous_weapon_slot) {
+                __arpg_movement_log("controller: breakable -> weapon slot "
+                    + string(_weapon_index) + __arpg_movement_log_ctx());
+            }
+            return true;
+    }
+
+    if (_tool_type == undefined) return false;
+
+    var _tool_index = __arpg_movement_find_item(
+        ItemUse.UseTool,
+        _tool_type,
+        _minimum_quality
+    );
+    if (_tool_index == undefined) {
+        if (_pressed) {
+            __arpg_movement_log("controller: node cat=" + string(_category)
+                + " needs tool type " + string(_tool_type)
+                + ", none usable in inventory" + __arpg_movement_log_ctx());
+        }
+        return true;
+    }
+
+    var _tool = ARI.inventory.slot(_tool_index).item;
+    if (!__arpg_movement_tool_reaches_node(_node, _tool, _selection)) {
+        // A fresh press still arms the intended tool just outside effective
+        // range. A held repeat is less explicit and never changes for a miss.
+        if (_pressed) {
+            __arpg_movement_select_item(_tool_index);
+            __arpg_movement_log("controller: node cat=" + string(_category)
+                + " obj=" + string(_node.object_id)
+                + " out of reach, armed tool slot " + string(_tool_index)
+                + " anyway, sel=" + string(_selection.x)
+                + "," + string(_selection.y)
+                + __arpg_movement_log_ctx());
+        }
+        return true;
+    }
+
+    var _previous_tool_slot = ARI.held_item_index;
+    __arpg_movement_select_item(_tool_index);
+    if (_pressed || ARI.held_item_index != _previous_tool_slot) {
+        __arpg_movement_log("controller: node cat=" + string(_category)
+            + " obj=" + string(_node.object_id)
+            + " -> tool slot " + string(_tool_index)
+            + " sel=" + string(_selection.x) + "," + string(_selection.y)
+            + __arpg_movement_log_ctx());
+    }
+    return true;
+}
+
+// Controller counterpart to the cursor-driven selector below. It observes the
+// player's configured vanilla action inputs, predicts the post-movement pose,
+// and walks the same facing-based selection queue vanilla will use later in
+// this frame. It never injects controller input or changes movement behavior.
+function __arpg_movement_auto_select_controller_action_item(_rt) {
+    var _pressed = INPUT.pressed(InputId.UseToolCharged)
+        || INPUT.pressed(InputId.UseToolRepeated);
+    if (!_pressed && !INPUT.check(InputId.UseToolRepeated)) return;
+    if (ARI.held_animal_id != undefined) return;
+
+    var _held = ARI.held_item();
+    if (_held != undefined
+        && __arpg_movement_is_deliberate_placement(_held.prototype.use))
+    {
+        if (_pressed) {
+            __arpg_movement_log("controller: held placement item, skipped"
+                + __arpg_movement_log_ctx());
+        }
+        return;
+    }
+
+    // Controller combat intent has no pointer target: only the existing
+    // player-proximity rule applies. As on mouse, combat outranks world tools
+    // on a fresh press and a held weapon is never swapped mid-combo.
+    if (is_dungeon_room(room())) {
+        var _weapon_index = __arpg_movement_find_item(ItemUse.Attack);
+        if (_weapon_index != undefined
+            && __arpg_movement_monster_near(
+                arpg_movement_config().sword_enemy_range_px,
+                false
+            ))
+        {
+            if (_pressed) {
+                __arpg_movement_select_item(_weapon_index);
+                __arpg_movement_log("controller: mines combat -> weapon slot "
+                    + string(_weapon_index) + __arpg_movement_log_ctx());
+            }
+            return;
+        }
+        if (!_pressed
+            && _held != undefined
+            && _held.prototype.use == ItemUse.Attack)
+        {
+            return;
+        }
+    }
+
+    var _pose = __arpg_movement_predicted_pose(_rt, arpg_movement_config());
+
+    // Without a pointer's exact object identity, a usable hand-picked item is
+    // the strongest statement of intent and must survive automatic discovery.
+    if (_held != undefined) {
+        var _held_selection = __arpg_movement_facing_selection_for_item(
+            _pose,
+            _held
+        );
+        if (__arpg_movement_item_affects_cells(_held, _held_selection)) {
+            if (_pressed) {
+                __arpg_movement_log(
+                    "controller: held item already acts on facing selection, kept"
+                    + __arpg_movement_log_ctx()
+                );
+            }
+            return;
+        }
+    }
+
+    var _selections = __arpg_movement_facing_selections(_pose);
+
+    // Explicit rocks, trees, stumps, dig sites, and breakables outrank nearby
+    // ground. This lets a reachable object win even when ordinary dirt shares
+    // the facing queue and could otherwise offer the hoe.
+    for (var _i = 0; _i < array_length(_selections); _i++) {
+        var _selection = _selections[_i];
+        var _node = __arpg_movement_controller_node_in_selection(_selection);
+        if (_node != undefined
+            && __arpg_movement_controller_select_node(
+                _node,
+                _pose,
+                _selection,
+                _pressed
+            ))
+        {
+            return;
+        }
+    }
+
+    // A visible bug is more specific than water or ground work. Check it before
+    // the fishing ray so pond skaters and other surface bugs select the net.
+    // Nets use vanilla's full long queue and remain bug-only for automatic
+    // selection, matching the mouse path's projectile-suppression rule.
+    for (var _i = 0; _i < array_length(_selections); _i++) {
+        var _net_index = __arpg_movement_find_net_for_bug(_selections[_i]);
+        if (_net_index != undefined) {
+            __arpg_movement_select_item(_net_index);
+            if (_pressed) {
+                __arpg_movement_log("controller: bug -> net slot "
+                    + string(_net_index)
+                    + " sel=" + string(_selections[_i].x)
+                    + "," + string(_selections[_i].y)
+                    + __arpg_movement_log_ctx());
+            }
+            return;
+        }
+    }
+
+    var _rod_index = __arpg_movement_find_item(
+        ItemUse.UseTool,
+        ToolType.FishingRod
+    );
+    var _rod_range = _rod_index == undefined
+        ? 0 : ARI.inventory.slot(_rod_index).item.prototype.range;
+    var _fishing_landing = __arpg_movement_controller_fishable_landing(
+        _pose,
+        _rod_range
+    );
+    if (_fishing_landing != undefined) {
+        if (_rod_index != undefined) {
+            __arpg_movement_select_item(_rod_index);
+            if (_pressed) {
+                __arpg_movement_log(
+                    "controller: fishable water ahead -> fishing rod slot "
+                    + string(_rod_index)
+                    + " landing=" + string(_fishing_landing.x)
+                    + "," + string(_fishing_landing.y)
+                    + " distance=" + string(_fishing_landing.distance)
+                    + __arpg_movement_log_ctx()
+                );
+            }
+        } else if (_pressed) {
+            __arpg_movement_log(
+                "controller: fishable water ahead, no fishing rod in inventory"
+                + __arpg_movement_log_ctx()
+            );
+        }
+        return;
+    }
+
+    // Auto-discover ground work only on the primary tile in front. Vanilla may
+    // fall back under Ari for an already selected tool, handled above, but an
+    // automatic swap should not till or water an ambiguous tile underfoot.
+    var _terrain_index = __arpg_movement_find_terrain_tool(_selections[0]);
+    if (_terrain_index != undefined) {
+        __arpg_movement_select_item(_terrain_index);
+        if (_pressed) {
+            __arpg_movement_log("controller: terrain tool -> slot "
+                + string(_terrain_index)
+                + " sel=" + string(_selections[0].x)
+                + "," + string(_selections[0].y)
+                + __arpg_movement_log_ctx());
+        }
+        return;
+    }
+
+    if (_pressed) {
+        __arpg_movement_log("controller: no auto target, selection kept"
+            + __arpg_movement_log_ctx());
+    }
 }
 
 // Selects the item before AriFsm's Default step reads this frame's unchanged
@@ -961,6 +1394,18 @@ function __arpg_movement_auto_select_action_item(_rt) {
     // clicks only: re-running them per repeat would let a held sweep across
     // tillable dirt till it, or swing the net at a bug the cursor grazed.
     if (!_pressed) {
+        return;
+    }
+
+    // A bug on the selected cells is more specific than the water underneath
+    // it, so pond skaters and other surface bugs arm the net before the fishing
+    // probe can claim the click.
+    var _net_index = __arpg_movement_find_net_for_bug(_selection);
+    if (_net_index != undefined) {
+        __arpg_movement_select_item(_net_index);
+        __arpg_movement_log("click: bug -> net slot " + string(_net_index)
+            + " sel=" + string(_selection.x) + "," + string(_selection.y)
+            + __arpg_movement_log_ctx());
         return;
     }
 
