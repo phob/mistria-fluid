@@ -1,7 +1,7 @@
 {
     "name": "ARPG Movement",
     "author": "phobi666",
-    "version": "2.3.2",
+    "version": "2.4.0",
     "description": "Fields of Mistria 1.0-ready ARPG-style mouse movement on foot and horseback, with click-to-move, smart interactions, cursor-aimed tool and weapon use, automatic tool swapping, and convenient mouse-friendly menus. WASD always stays in control.",
     "minInstallerVersion": "0.15.5",
     "manifestVersion": 1,

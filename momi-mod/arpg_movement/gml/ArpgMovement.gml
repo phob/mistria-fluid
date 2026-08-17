@@ -274,5 +274,5 @@ function arpg_movement_register_callbacks() {
 }
 
 // Boot wiring: memory-only top level.
-mmapi_mod_declare("arpg_movement", "2.3.2");
+mmapi_mod_declare("arpg_movement", "2.4.0");
 arpg_movement_register_callbacks();

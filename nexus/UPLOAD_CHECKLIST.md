@@ -1,6 +1,6 @@
-# Nexus 2.3.2 update checklist
+# Nexus 2.4.0 update checklist
 
-1. The manifest is final: author `phobi666`, version `2.3.2`,
+1. The manifest is final: author `phobi666`, version `2.4.0`,
    `minInstallerVersion` `0.15.5`. Don't change `author` or `name` after
    release: MOMI derives the mod's unique ID from them.
 
@@ -24,20 +24,21 @@
    requirement. In the requirement's notes field write: "Requires MOMI 0.15.5
    or newer."
 
-5. Files tab: upload `dist/ARPGMovement-2.3.2.zip`, version `2.3.2`.
+5. Files tab: upload `dist/ARPGMovement-2.4.0.zip`, version `2.4.0`.
 
 6. Changelog (paste as plain text, one entry per line):
 
    ```text
    Added Auto Tool Swapping for controller tool actions
-   Protect player-planted saplings and trees from automatic axe swapping
+   Prioritize bug nets over fishing rods on water
+   Require MOMI 0.15.5 for current game seam fixes
    ```
 
 7. Keep `nexus/1936b44d-ed82-46e9-bd57-e28db83274d3-v2.png` as the main
    2.0 image. A short Auto Tool Swapping GIF would also make the feature
    immediately clear.
 
-8. Mark the 2.3.1 file as archived only after confirming the 2.3.2 download
+8. Mark the 2.3.2 file as archived only after confirming the 2.4.0 download
    extracts to `arpg_movement/manifest.json` and installs successfully.
 
 9. Permissions: MOMI mods are plain-text GML, pick whatever permissions you
